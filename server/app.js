@@ -349,12 +349,13 @@ app.post('/api/ai/image', async (req, res) => {
 // Hebrew TTS
 app.post('/api/speech/tts', async (req, res) => {
   try {
-    const { text, mode = 'biblical', slow = false } = req.body || {};
+    const { text, mode = 'biblical', slow = false, phoneticHint = '' } = req.body || {};
     if (!text) return res.status(400).json({ error: 'text is required' });
     const result = await synthesizeHebrewSpeech({
       text,
       mode,
       slow,
+      phoneticHint,
       keyOverrides: extractRequestKeyOverrides(req),
       settingsOverride: extractRequestSettingsOverride(req),
     });

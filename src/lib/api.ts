@@ -333,9 +333,9 @@ let currentAudio: HTMLAudioElement | null = null;
  */
 export async function speakHebrew(
   text: string,
-  options: { mode?: 'biblical' | 'modern'; slow?: boolean } = {}
+  options: { mode?: 'biblical' | 'modern' | 'syllable'; slow?: boolean; phoneticHint?: string } = {}
 ): Promise<{ usedProvider: string }> {
-  const { mode = 'biblical', slow = false } = options;
+  const { mode = 'biblical', slow = false, phoneticHint = '' } = options;
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
@@ -346,7 +346,7 @@ export async function speakHebrew(
       method: 'POST',
       credentials: 'include',
       headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ text, mode, slow }),
+      body: JSON.stringify({ text, mode, slow, phoneticHint }),
     });
     const data = await res.json();
     if (res.ok && data.audioUrl) {

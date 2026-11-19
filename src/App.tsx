@@ -3,6 +3,7 @@ import {
   Bookmark,
   BookOpen,
   Compass,
+  Headphones,
   Layers,
   Mic,
   Music,
@@ -18,6 +19,7 @@ import { STARTER_FLASHCARDS } from './data/curriculum';
 import { DashboardView } from './components/DashboardView';
 import { AlphabetView } from './components/AlphabetView';
 import { NiqqudView } from './components/NiqqudView';
+import { ListenMatchView } from './components/ListenMatchView';
 import { ManuscriptReaderView } from './components/ManuscriptReaderView';
 import { SpeakingView } from './components/SpeakingView';
 import { FlashcardsView } from './components/FlashcardsView';
@@ -29,6 +31,7 @@ const NAV_ITEMS = [
   { id: 'dashboard', label: 'Mastery Path', icon: Compass },
   { id: 'alphabet', label: 'Aleph-Bet & Pictures', icon: BookOpen },
   { id: 'niqqud', label: 'Vowels & Cantillation', icon: Music },
+  { id: 'listen-match', label: 'Listen & Match', icon: Headphones },
   { id: 'manuscripts', label: 'Manuscript Reader', icon: ScrollText },
   { id: 'speaking', label: 'Speak & Pronounce', icon: Mic },
   { id: 'flashcards', label: 'Visual Flashcards', icon: Layers },
@@ -260,6 +263,18 @@ export default function App() {
       try {
         const res = await api.deleteSavedLesson(id);
         setSavedLessons(res.savedLessons);
+      } catch {
+        // local state updated
+      }
+    }
+  };
+
+  const handleEarnXp = async (xp: number) => {
+    setProfile((prev) => ({ ...prev, xp: prev.xp + xp }));
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.completeLesson('', xp);
+        setProfile(res.profile);
       } catch {
         // local state updated
       }
@@ -532,6 +547,8 @@ export default function App() {
           )}
 
           {activeTab === 'niqqud' && <NiqqudView onAskTutor={handleAskTutor} />}
+
+          {activeTab === 'listen-match' && <ListenMatchView onEarnXp={handleEarnXp} />}
 
           {activeTab === 'manuscripts' && (
             <ManuscriptReaderView

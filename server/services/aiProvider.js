@@ -331,6 +331,7 @@ export async function synthesizeHebrewSpeech({
   text,
   mode = 'biblical',
   slow = false,
+  phoneticHint = '',
   keyOverrides = {},
   settingsOverride = null,
 }) {
@@ -339,7 +340,7 @@ export async function synthesizeHebrewSpeech({
   const voice = settings.ttsVoice || 'Kore';
   const cacheKey = crypto
     .createHash('sha1')
-    .update(`${provider}|${voice}|${mode}|${slow}|${text}`)
+    .update(`${provider}|${voice}|${mode}|${slow}|${phoneticHint}|${text}`)
     .digest('hex');
 
   const wavPath = path.join(AUDIO_CACHE_DIR, `${cacheKey}.wav`);
@@ -361,7 +362,9 @@ export async function synthesizeHebrewSpeech({
     }
 
     const stylePrompt =
-      mode === 'biblical'
+      mode === 'syllable'
+        ? `Pronounce ONLY this single Hebrew syllable aloud clearly and slowly — do NOT say the letter's name, say ONLY the syllable sound${phoneticHint ? ` (pronounced "${phoneticHint}")` : ''}. Output ONLY the spoken syllable once:\n${text}`
+        : mode === 'biblical'
         ? `Pronounce the following Biblical Hebrew text clearly and reverently${slow ? ', very slowly syllable by syllable for a beginner student' : ', at a measured scholarly pace'}. Speak ONLY the Hebrew words, nothing else:\n${text}`
         : `Speak the following Modern Israeli Hebrew naturally and clearly${slow ? ', slowly for a language learner' : ''}. Speak ONLY the Hebrew words, nothing else:\n${text}`;
 
