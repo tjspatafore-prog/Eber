@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Bookmark,
   BookOpen,
   Compass,
   Layers,
@@ -11,7 +12,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
-import { api, Flashcard, KeyStatusMap, SettingsData, UserProfile } from './lib/api';
+import { api, Flashcard, KeyStatusMap, SavedLesson, SettingsData, UserProfile } from './lib/api';
 import { countCachedBrowserImages, loadLocalJson, LS_KEYS, saveLocalJson } from './lib/localCache';
 import { STARTER_FLASHCARDS } from './data/curriculum';
 import { DashboardView } from './components/DashboardView';
@@ -20,7 +21,8 @@ import { NiqqudView } from './components/NiqqudView';
 import { ManuscriptReaderView } from './components/ManuscriptReaderView';
 import { SpeakingView } from './components/SpeakingView';
 import { FlashcardsView } from './components/FlashcardsView';
-import { TutorChatView } from './components/TutorChatView';
+import { QueuedTutorRequest, TutorChatView } from './components/TutorChatView';
+import { SavedLessonsView } from './components/SavedLessonsView';
 import { SettingsView } from './components/SettingsView';
 
 const NAV_ITEMS = [
@@ -31,6 +33,7 @@ const NAV_ITEMS = [
   { id: 'speaking', label: 'Speak & Pronounce', icon: Mic },
   { id: 'flashcards', label: 'Visual Flashcards', icon: Layers },
   { id: 'tutor', label: 'AI Scribe Chat', icon: Sparkles },
+  { id: 'saved-lessons', label: 'Saved Lessons', icon: Bookmark },
   { id: 'settings', label: 'API & Settings', icon: Settings },
 ] as const;
 
@@ -113,14 +116,17 @@ export default function App() {
     const saved = loadLocalJson<Flashcard[]>(LS_KEYS.FLASHCARDS, []);
     return saved.length > 0 ? saved : makeStarterCards();
   });
+  const [savedLessons, setSavedLessons] = useState<SavedLesson[]>(() =>
+    loadLocalJson<SavedLesson[]>(LS_KEYS.SAVED_LESSONS, [])
+  );
+  const [selectedSavedLessonId, setSelectedSavedLessonId] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsData>(() =>
     loadLocalJson<SettingsData>(LS_KEYS.SETTINGS, DEFAULT_SETTINGS)
   );
   const [keys, setKeys] = useState<KeyStatusMap>({});
   const [cacheStats, setCacheStats] = useState({ cachedImages: 0, cachedAudio: 0 });
-  const [queuedTutorPrompt, setQueuedTutorPrompt] = useState<string | null>(null);
+  const [queuedTutorRequest, setQueuedTutorRequest] = useState<QueuedTutorRequest | null>(null);
 
-  // Keep localStorage always synchronized for instant mobile/Vercel persistence
   useEffect(() => {
     saveLocalJson(LS_KEYS.PROFILE, profile);
   }, [profile]);
@@ -128,6 +134,10 @@ export default function App() {
   useEffect(() => {
     saveLocalJson(LS_KEYS.FLASHCARDS, flashcards);
   }, [flashcards]);
+
+  useEffect(() => {
+    saveLocalJson(LS_KEYS.SAVED_LESSONS, savedLessons);
+  }, [savedLessons]);
 
   useEffect(() => {
     saveLocalJson(LS_KEYS.SETTINGS, settings);
@@ -149,6 +159,9 @@ export default function App() {
       if (settingsRes.deployment !== 'vercel') {
         const storeRes = await api.getStore();
         setProfile(storeRes.profile);
+        if (Array.isArray(storeRes.savedLessons) && storeRes.savedLessons.length > 0) {
+          setSavedLessons(storeRes.savedLessons);
+        }
         if (storeRes.flashcards.length === 0) {
           let latestCards: Flashcard[] = [];
           for (const sc of STARTER_FLASHCARDS) {
@@ -181,9 +194,76 @@ export default function App() {
 
   const dueCount = flashcards.filter((c) => (c.dueAt ?? 0) <= Date.now()).length;
 
-  const handleAskTutor = (prompt: string) => {
-    setQueuedTutorPrompt(prompt);
+  const handleAskTutor = (prompt: string, meta?: { title?: string; lessonId?: string }) => {
+    setQueuedTutorRequest({ prompt, title: meta?.title, lessonId: meta?.lessonId });
     setActiveTab('tutor');
+  };
+
+  const handleOpenSavedLesson = (savedId: string) => {
+    setSelectedSavedLessonId(savedId);
+    setActiveTab('saved-lessons');
+  };
+
+  const handleSaveLesson = async (lesson: Partial<SavedLesson>): Promise<SavedLesson> => {
+    const now = Date.now();
+    const record: SavedLesson = {
+      id: lesson.id || `lesson_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      title: lesson.title || 'Saved Hebrew Lesson',
+      lessonId: lesson.lessonId || '',
+      prompt: lesson.prompt || '',
+      content: lesson.content || '',
+      provider: lesson.provider || '',
+      model: lesson.model || '',
+      createdAt: lesson.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSavedLessons((prev) => {
+      const idx = prev.findIndex((l) => l.id === record.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...lesson, updatedAt: now };
+        return copy;
+      }
+      return [record, ...prev];
+    });
+
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.upsertSavedLesson(record);
+        setSavedLessons(res.savedLessons);
+      } catch {
+        // localStorage already persisted it
+      }
+    }
+    return record;
+  };
+
+  const handleUpdateSavedLesson = async (lesson: Partial<SavedLesson>) => {
+    const now = Date.now();
+    setSavedLessons((prev) =>
+      prev.map((l) => (l.id === lesson.id ? { ...l, ...lesson, updatedAt: now } : l))
+    );
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.upsertSavedLesson(lesson);
+        setSavedLessons(res.savedLessons);
+      } catch {
+        // local state updated
+      }
+    }
+  };
+
+  const handleDeleteSavedLesson = async (id: string) => {
+    setSavedLessons((prev) => prev.filter((l) => l.id !== id));
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.deleteSavedLesson(id);
+        setSavedLessons(res.savedLessons);
+      } catch {
+        // local state updated
+      }
+    }
   };
 
   const handleCompleteLesson = async (lessonId: string) => {
@@ -356,6 +436,11 @@ export default function App() {
                     {dueCount}
                   </span>
                 )}
+                {item.id === 'saved-lessons' && savedLessons.length > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-100">
+                    {savedLessons.length}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -404,11 +489,18 @@ export default function App() {
                     setActiveTab(item.id);
                     setMobileMenuOpen(false);
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${
+                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${
                     activeTab === item.id ? 'bg-amber-700 text-white' : 'text-[#e3d4bc]'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" /> {item.label}
+                  <span className="flex items-center gap-2">
+                    <Icon className="w-3.5 h-3.5" /> {item.label}
+                  </span>
+                  {item.id === 'saved-lessons' && savedLessons.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/30">
+                      {savedLessons.length}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -420,11 +512,13 @@ export default function App() {
             <DashboardView
               profile={profile}
               dueFlashcardsCount={dueCount}
+              savedLessons={savedLessons}
               hasAnyAiKey={hasAnyAiKey}
               hasDeepgramKey={hasDeepgramKey}
               onNavigate={setActiveTab}
               onCompleteLesson={handleCompleteLesson}
               onAskTutor={handleAskTutor}
+              onOpenSavedLesson={handleOpenSavedLesson}
             />
           )}
 
@@ -445,6 +539,8 @@ export default function App() {
               onMarkPassageRead={handleMarkPassage}
               onAddFlashcard={handleAddFlashcard}
               onAskTutor={handleAskTutor}
+              onSaveLesson={handleSaveLesson}
+              onOpenSavedLesson={handleOpenSavedLesson}
             />
           )}
 
@@ -463,9 +559,23 @@ export default function App() {
           {activeTab === 'tutor' && (
             <TutorChatView
               settings={settings}
-              queuedPrompt={queuedTutorPrompt}
-              onConsumeQueuedPrompt={() => setQueuedTutorPrompt(null)}
+              queuedRequest={queuedTutorRequest}
+              savedLessons={savedLessons}
+              onConsumeQueuedRequest={() => setQueuedTutorRequest(null)}
               onChangeProvider={handleChangeTutorProvider}
+              onSaveLesson={handleSaveLesson}
+              onOpenSavedLesson={handleOpenSavedLesson}
+            />
+          )}
+
+          {activeTab === 'saved-lessons' && (
+            <SavedLessonsView
+              lessons={savedLessons}
+              initialSelectedId={selectedSavedLessonId}
+              onConsumeInitialSelected={() => setSelectedSavedLessonId(null)}
+              onUpdateLesson={handleUpdateSavedLesson}
+              onDeleteLesson={handleDeleteSavedLesson}
+              onContinueInTutor={(prompt) => handleAskTutor(prompt)}
             />
           )}
 

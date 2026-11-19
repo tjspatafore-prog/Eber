@@ -18,6 +18,7 @@ const DEFAULT_STORE = {
     speakingSessions: 0,
   },
   flashcards: [],
+  savedLessons: [],
   imageCacheIndex: {},
   notes: [],
 };
@@ -148,6 +149,37 @@ export function deleteFlashcard(id) {
   store.flashcards = store.flashcards.filter((c) => c.id !== id);
   writeStore(store);
   return store.flashcards;
+}
+
+export function upsertSavedLesson(lesson) {
+  const store = readStore();
+  if (!Array.isArray(store.savedLessons)) store.savedLessons = [];
+  const now = Date.now();
+  const idx = lesson.id ? store.savedLessons.findIndex((l) => l.id === lesson.id) : -1;
+  if (idx >= 0) {
+    store.savedLessons[idx] = { ...store.savedLessons[idx], ...lesson, updatedAt: now };
+  } else {
+    store.savedLessons.unshift({
+      id: lesson.id || `lesson_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      title: lesson.title || 'Saved Hebrew Lesson',
+      lessonId: lesson.lessonId || '',
+      prompt: lesson.prompt || '',
+      content: lesson.content || '',
+      provider: lesson.provider || '',
+      model: lesson.model || '',
+      createdAt: lesson.createdAt || now,
+      updatedAt: now,
+    });
+  }
+  writeStore(store);
+  return store.savedLessons;
+}
+
+export function deleteSavedLesson(id) {
+  const store = readStore();
+  store.savedLessons = (store.savedLessons || []).filter((l) => l.id !== id);
+  writeStore(store);
+  return store.savedLessons;
 }
 
 export function getCachedImagePath(cacheKey) {

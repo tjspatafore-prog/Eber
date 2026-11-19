@@ -1,18 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Send, Sparkles, Trash2, Volume2 } from 'lucide-react';
-import { api, SettingsData, speakHebrew } from '../lib/api';
+import { Bookmark, BookmarkCheck, Loader2, Send, Sparkles, Trash2, Volume2 } from 'lucide-react';
+import { api, SavedLesson, SettingsData, speakHebrew } from '../lib/api';
 
 interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   meta?: string;
+  provider?: string;
+  model?: string;
+  sourcePrompt?: string;
+  suggestedTitle?: string;
+  lessonId?: string;
+}
+
+export interface QueuedTutorRequest {
+  prompt: string;
+  title?: string;
+  lessonId?: string;
 }
 
 interface TutorChatViewProps {
   settings: SettingsData;
-  queuedPrompt: string | null;
-  onConsumeQueuedPrompt: () => void;
+  queuedRequest: QueuedTutorRequest | null;
+  savedLessons: SavedLesson[];
+  onConsumeQueuedRequest: () => void;
   onChangeProvider: (provider: SettingsData['tutorProvider']) => void;
+  onSaveLesson: (lesson: Partial<SavedLesson>) => Promise<SavedLesson>;
+  onOpenSavedLesson: (savedId: string) => void;
 }
 
 const QUICK_PROMPTS = [
@@ -22,30 +37,52 @@ const QUICK_PROMPTS = [
   'Bridge 6 Biblical Hebrew words into everyday Modern Israeli conversation sentences I can speak today.',
 ];
 
+function deriveLessonTitle(content: string, prompt?: string, suggested?: string): string {
+  if (suggested && suggested.trim()) return suggested.trim();
+  const headingMatch = content.match(/^#{1,3}\s+(.+)$/m);
+  if (headingMatch?.[1]) {
+    return headingMatch[1].replace(/[*`]/g, '').trim().slice(0, 80);
+  }
+  if (prompt) {
+    return prompt.replace(/\s+/g, ' ').trim().slice(0, 72);
+  }
+  return 'Hebrew Study Lesson';
+}
+
 export const TutorChatView: React.FC<TutorChatViewProps> = ({
   settings,
-  queuedPrompt,
-  onConsumeQueuedPrompt,
+  queuedRequest,
+  savedLessons,
+  onConsumeQueuedRequest,
   onChangeProvider,
+  onSaveLesson,
+  onOpenSavedLesson,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
+      id: 'welcome',
       role: 'assistant',
       content:
-        'שָׁלוֹם! (Shalom!) I am **Eber**, your Biblical & Spoken Hebrew Scribe.\n\nAsk me anything — from your very first Aleph-Bet letter and ancient Proto-Sinaitic word pictures (*Friends of Eber* style), to Tiberian vowels & cantillation, 7 Binyanim verbs, Modern Hebrew conversation, or comparing the **Leningrad Codex**, **Aleppo Codex**, and **Dead Sea Scrolls**!',
+        'שָׁלוֹם! (Shalom!) I am **Eber**, your Biblical & Spoken Hebrew Scribe.\n\nAsk me anything — from your very first Aleph-Bet letter and ancient Proto-Sinaitic word pictures (*Friends of Eber* style), to Tiberian vowels & cantillation, 7 Binyanim verbs, Modern Hebrew conversation, or comparing the **Leningrad Codex**, **Aleppo Codex**, and **Dead Sea Scrolls**!\n\nTip: Click **Save Lesson** on any reply to keep it forever in your **Saved Lessons** tab.',
       meta: 'Eber Scribe',
     },
   ]);
+  const [savedMsgMap, setSavedMsgMap] = useState<Record<string, string>>({});
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, metaCtx?: { title?: string; lessonId?: string }) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
     setError('');
-    const nextHistory: ChatMessage[] = [...messages, { role: 'user', content: trimmed }];
+    const userMsg: ChatMessage = {
+      id: `u_${Date.now()}`,
+      role: 'user',
+      content: trimmed,
+    };
+    const nextHistory: ChatMessage[] = [...messages, userMsg];
     setMessages(nextHistory);
     setInput('');
     setLoading(true);
@@ -56,9 +93,15 @@ export const TutorChatView: React.FC<TutorChatViewProps> = ({
       setMessages((prev) => [
         ...prev,
         {
+          id: `a_${Date.now()}`,
           role: 'assistant',
           content: res.text,
           meta: `${res.provider} • ${res.model}`,
+          provider: res.provider,
+          model: res.model,
+          sourcePrompt: trimmed,
+          suggestedTitle: metaCtx?.title,
+          lessonId: metaCtx?.lessonId,
         },
       ]);
     } catch (err: any) {
@@ -69,22 +112,34 @@ export const TutorChatView: React.FC<TutorChatViewProps> = ({
   };
 
   useEffect(() => {
-    if (queuedPrompt) {
-      const prompt = queuedPrompt;
-      onConsumeQueuedPrompt();
-      sendMessage(prompt);
+    if (queuedRequest) {
+      const req = queuedRequest;
+      onConsumeQueuedRequest();
+      sendMessage(req.prompt, { title: req.title, lessonId: req.lessonId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queuedPrompt]);
+  }, [queuedRequest]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Extract first Hebrew phrase from a message for quick listen button
   const extractHebrewSnippet = (content: string): string | null => {
     const matches = content.match(/[\u0590-\u05FF][\u0590-\u05FF\s־]{2,40}/g);
     return matches ? matches[0].trim() : null;
+  };
+
+  const handleSaveReply = async (m: ChatMessage) => {
+    const title = deriveLessonTitle(m.content, m.sourcePrompt, m.suggestedTitle);
+    const saved = await onSaveLesson({
+      title,
+      lessonId: m.lessonId,
+      prompt: m.sourcePrompt || '',
+      content: m.content,
+      provider: m.provider,
+      model: m.model,
+    });
+    setSavedMsgMap((prev) => ({ ...prev, [m.id]: saved.id }));
   };
 
   return (
@@ -95,7 +150,7 @@ export const TutorChatView: React.FC<TutorChatViewProps> = ({
             AI Hebrew Scribe &amp; Multi-Model Tutor
           </h1>
           <p className="text-xs text-[#66543f]">
-            Switch anytime between Gemini, OpenAI, Claude, Grok, Kimi, or Qwen.
+            Switch anytime between Gemini, OpenAI, Claude, Grok, Kimi, or Qwen — and save any lesson forever.
           </p>
         </div>
 
@@ -140,18 +195,22 @@ export const TutorChatView: React.FC<TutorChatViewProps> = ({
 
       {/* Chat Stream */}
       <div className="flex-1 parchment-card rounded-2xl p-4 md:p-5 overflow-y-auto space-y-4">
-        {messages.map((m, i) => {
+        {messages.map((m) => {
           const heb = m.role === 'assistant' ? extractHebrewSnippet(m.content) : null;
+          const savedId =
+            savedMsgMap[m.id] || savedLessons.find((l) => l.content === m.content)?.id || null;
+          const isSaveable = m.role === 'assistant' && m.id !== 'welcome';
+
           return (
             <div
-              key={i}
+              key={m.id}
               className={`rounded-2xl p-4 border max-w-3xl ${
                 m.role === 'user'
                   ? 'ml-auto bg-amber-900 text-amber-50 border-amber-950'
                   : 'mr-auto bg-white text-[#211a13] border-[#e6d9c2]'
               }`}
             >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <span
                   className={`text-[10px] font-bold uppercase tracking-wider ${
                     m.role === 'user' ? 'text-amber-200' : 'text-amber-800'
@@ -159,14 +218,36 @@ export const TutorChatView: React.FC<TutorChatViewProps> = ({
                 >
                   {m.role === 'user' ? 'You' : m.meta || 'Eber Scribe'}
                 </span>
-                {heb && (
-                  <button
-                    onClick={() => speakHebrew(heb, { mode: 'biblical', slow: true })}
-                    className="text-[11px] font-semibold text-amber-900 hover:text-amber-700 inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" /> Hear Hebrew
-                  </button>
-                )}
+
+                <div className="flex items-center gap-2">
+                  {heb && (
+                    <button
+                      onClick={() => speakHebrew(heb, { mode: 'biblical', slow: true })}
+                      className="text-[11px] font-semibold text-amber-900 hover:text-amber-700 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" /> Hear Hebrew
+                    </button>
+                  )}
+
+                  {isSaveable &&
+                    (savedId ? (
+                      <button
+                        onClick={() => onOpenSavedLesson(savedId)}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition"
+                      >
+                        <BookmarkCheck className="w-3.5 h-3.5" />
+                        Saved — View Lesson
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSaveReply(m)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition"
+                      >
+                        <Bookmark className="w-3.5 h-3.5" />
+                        Save Lesson
+                      </button>
+                    ))}
+                </div>
               </div>
               <div className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</div>
             </div>

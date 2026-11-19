@@ -80,6 +80,7 @@ export function saveLocalJson(key: string, value: unknown): void {
 export const LS_KEYS = {
   PROFILE: 'eber_profile_v1',
   FLASHCARDS: 'eber_flashcards_v1',
+  SAVED_LESSONS: 'eber_saved_lessons_v1',
   SETTINGS: 'eber_settings_v1',
   DEVICE_API_KEYS: 'eber_device_api_keys_v1',
   ACCESS_PIN: 'eber_access_pin_v1',

@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  BookmarkCheck,
   BookOpen,
   CheckCircle2,
   Circle,
@@ -13,26 +14,30 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { CURRICULUM_STAGES, CurriculumLesson } from '../data/curriculum';
-import { UserProfile } from '../lib/api';
+import { SavedLesson, UserProfile } from '../lib/api';
 
 interface DashboardViewProps {
   profile: UserProfile;
   dueFlashcardsCount: number;
+  savedLessons: SavedLesson[];
   hasAnyAiKey: boolean;
   hasDeepgramKey: boolean;
   onNavigate: (tab: string) => void;
   onCompleteLesson: (lessonId: string) => void;
-  onAskTutor: (prompt: string) => void;
+  onAskTutor: (prompt: string, meta?: { title?: string; lessonId?: string }) => void;
+  onOpenSavedLesson: (savedId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   profile,
   dueFlashcardsCount,
+  savedLessons,
   hasAnyAiKey,
   hasDeepgramKey,
   onNavigate,
   onCompleteLesson,
   onAskTutor,
+  onOpenSavedLesson,
 }) => {
   const totalLessons = CURRICULUM_STAGES.reduce((acc, s) => acc + s.lessons.length, 0);
   const completedCount = profile.completedLessons.length;
@@ -208,6 +213,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {stage.lessons.map((lesson) => {
                     const isDone = profile.completedLessons.includes(lesson.id);
+                    const existingSaved = savedLessons.find((s) => s.lessonId === lesson.id);
                     return (
                       <div
                         key={lesson.id}
@@ -256,13 +262,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           >
                             Practice <ArrowRight className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => onAskTutor(lesson.tutorPrompt)}
-                            className="flex-1 py-1.5 px-2.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            AI Lesson
-                          </button>
+                          {existingSaved ? (
+                            <button
+                              onClick={() => onOpenSavedLesson(existingSaved.id)}
+                              className="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
+                            >
+                              <BookmarkCheck className="w-3.5 h-3.5" />
+                              Saved Lesson
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                onAskTutor(lesson.tutorPrompt, {
+                                  title: lesson.title,
+                                  lessonId: lesson.id,
+                                })
+                              }
+                              className="flex-1 py-1.5 px-2.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              AI Lesson
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

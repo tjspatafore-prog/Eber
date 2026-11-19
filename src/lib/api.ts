@@ -51,9 +51,22 @@ export interface Flashcard {
   dueAt: number;
 }
 
+export interface SavedLesson {
+  id: string;
+  title: string;
+  lessonId?: string;
+  prompt: string;
+  content: string;
+  provider?: string;
+  model?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface StoreData {
   profile: UserProfile;
   flashcards: Flashcard[];
+  savedLessons?: SavedLesson[];
   imageCacheIndex: Record<string, string>;
   deployment?: 'local' | 'vercel';
 }
@@ -207,6 +220,17 @@ export const api = {
 
   deleteFlashcard: (id: string) =>
     req<{ flashcards: Flashcard[] }>(`/api/flashcards/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  upsertSavedLesson: (lesson: Partial<SavedLesson>) =>
+    req<{ savedLessons: SavedLesson[] }>('/api/saved-lessons', {
+      method: 'POST',
+      body: JSON.stringify(lesson),
+    }),
+
+  deleteSavedLesson: (id: string) =>
+    req<{ savedLessons: SavedLesson[] }>(`/api/saved-lessons/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
 

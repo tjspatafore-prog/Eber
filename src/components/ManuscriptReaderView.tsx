@@ -1,5 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
+  Bookmark,
+  BookmarkCheck,
   BookOpen,
   ExternalLink,
   Image as ImageIcon,
@@ -14,7 +16,7 @@ import {
   Search,
 } from 'lucide-react';
 import { InterlinearWord, MANUSCRIPT_PASSAGES, ManuscriptPassage } from '../data/manuscripts';
-import { api, getPreferredAudioMimeType, speakHebrew, toPaleoHebrew } from '../lib/api';
+import { api, getPreferredAudioMimeType, SavedLesson, speakHebrew, toPaleoHebrew } from '../lib/api';
 
 interface ManuscriptReaderViewProps {
   readPassages: string[];
@@ -28,7 +30,9 @@ interface ManuscriptReaderViewProps {
     category: string;
     imageUrl?: string;
   }) => void;
-  onAskTutor: (prompt: string) => void;
+  onAskTutor: (prompt: string, meta?: { title?: string }) => void;
+  onSaveLesson: (lesson: Partial<SavedLesson>) => Promise<SavedLesson>;
+  onOpenSavedLesson: (savedId: string) => void;
 }
 
 type ScriptMode = 'beginner' | 'codex' | 'unpointed' | 'paleo';
@@ -38,6 +42,8 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
   onMarkPassageRead,
   onAddFlashcard,
   onAskTutor,
+  onSaveLesson,
+  onOpenSavedLesson,
 }) => {
   const [passage, setPassage] = useState<ManuscriptPassage>(MANUSCRIPT_PASSAGES[0]);
   const [scriptMode, setScriptMode] = useState<ScriptMode>('beginner');
@@ -51,6 +57,7 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
   // Custom passage analyzer
   const [customRef, setCustomRef] = useState('');
   const [customAnalysis, setCustomAnalysis] = useState('');
+  const [customMeta, setCustomMeta] = useState<{ provider?: string; model?: string; savedId?: string }>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState('');
 
@@ -154,6 +161,7 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
     try {
       const res = await api.analyzePassage({ reference: customRef.trim() });
       setCustomAnalysis(res.text);
+      setCustomMeta({ provider: res.provider, model: res.model, savedId: undefined });
     } catch (err: any) {
       setAnalyzeError(err.message || 'Analysis failed. Configure an AI key in Settings.');
     } finally {
@@ -479,8 +487,39 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
             </form>
             {analyzeError && <div className="text-xs text-red-700">{analyzeError}</div>}
             {customAnalysis && (
-              <div className="rounded-xl bg-white border border-[#e5d8c0] p-4 text-sm text-[#2b1e10] whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
-                {customAnalysis}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-amber-900">
+                    Passage Study: {customRef || 'Custom Hebrew Text'}
+                  </span>
+                  {customMeta.savedId ? (
+                    <button
+                      onClick={() => onOpenSavedLesson(customMeta.savedId!)}
+                      className="px-3 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <BookmarkCheck className="w-3.5 h-3.5" /> Saved — Open in Library
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        const saved = await onSaveLesson({
+                          title: `Passage Study: ${customRef.trim() || 'Hebrew Text'}`,
+                          prompt: `Analyze passage: ${customRef.trim()}`,
+                          content: customAnalysis,
+                          provider: customMeta.provider,
+                          model: customMeta.model,
+                        });
+                        setCustomMeta((prev) => ({ ...prev, savedId: saved.id }));
+                      }}
+                      className="px-3 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Bookmark className="w-3.5 h-3.5" /> Save Lesson
+                    </button>
+                  )}
+                </div>
+                <div className="rounded-xl bg-white border border-[#e5d8c0] p-4 text-sm text-[#2b1e10] whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
+                  {customAnalysis}
+                </div>
               </div>
             )}
           </div>

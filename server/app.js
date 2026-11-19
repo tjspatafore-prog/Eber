@@ -20,6 +20,8 @@ import {
   upsertFlashcard,
   reviewFlashcard,
   deleteFlashcard,
+  upsertSavedLesson,
+  deleteSavedLesson,
 } from './services/dataStore.js';
 import {
   generateTutorReply,
@@ -182,6 +184,21 @@ app.post('/api/flashcards/:id/review', (req, res) => {
 app.delete('/api/flashcards/:id', (req, res) => {
   const flashcards = deleteFlashcard(req.params.id);
   res.json({ flashcards });
+});
+
+// Saved AI Lessons
+app.post('/api/saved-lessons', (req, res) => {
+  try {
+    const savedLessons = upsertSavedLesson(req.body || {});
+    res.json({ savedLessons });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/saved-lessons/:id', (req, res) => {
+  const savedLessons = deleteSavedLesson(req.params.id);
+  res.json({ savedLessons });
 });
 
 // List live Gemini models available to the configured key
