@@ -92,21 +92,27 @@ export function saveAccessPin(pin: string): void {
   else localStorage.setItem(LS_KEYS.ACCESS_PIN, pin.trim());
 }
 
+function sanitizeHeaderValue(val: string): string {
+  // Strip newlines, control characters, and non-Latin1 chars so browser fetch() never throws on headers
+  return val.replace(/[^\x20-\x7E]/g, '').trim();
+}
+
 function buildAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
-  const pin = getAccessPin();
+  const pin = sanitizeHeaderValue(getAccessPin());
   if (pin) headers['x-access-pin'] = pin;
 
   const deviceKeys = getDeviceApiKeys();
   for (const [envKey, headerName] of Object.entries(HEADER_KEY_MAP)) {
-    if (deviceKeys[envKey]) {
-      headers[headerName] = deviceKeys[envKey];
+    const clean = sanitizeHeaderValue(deviceKeys[envKey] || '');
+    if (clean) {
+      headers[headerName] = clean;
     }
   }
 
   const localSettings = loadLocalJson<SettingsData | null>(LS_KEYS.SETTINGS, null);
   if (localSettings) {
-    headers['x-eber-settings'] = JSON.stringify(localSettings);
+    headers['x-eber-settings'] = sanitizeHeaderValue(JSON.stringify(localSettings));
   }
   return headers;
 }
@@ -119,7 +125,22 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     ...((init?.headers as Record<string, string>) || {}),
   };
 
-  const res = await fetch(url, { ...init, headers: mergedHeaders });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, credentials: 'include', headers: mergedHeaders });
+  } catch (err: any) {
+    throw new Error(
+      `Could not reach ${url} (${err?.message || 'Failed to fetch'}). If you are on Vercel, refresh the page to ensure Vercel Authentication is active (or disable Vercel SSO for Production and use APP_ACCESS_PIN instead).`
+    );
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    throw new Error(
+      'Vercel Authentication intercepted the API request and returned a login page. Refresh the page to sign in, or switch Vercel Deployment Protection to Preview-only (and protect your keys with APP_ACCESS_PIN).'
+    );
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || `Request failed (${res.status})`);
@@ -148,6 +169,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ provider }),
     }),
+
+  listGeminiModels: () =>
+    req<{ models: { id: string; displayName: string }[] }>('/api/ai/models'),
 
   getStore: () => req<StoreData>('/api/store'),
 
@@ -296,6 +320,7 @@ export async function speakHebrew(
   try {
     const res = await fetch('/api/speech/tts', {
       method: 'POST',
+      credentials: 'include',
       headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, mode, slow }),
     });

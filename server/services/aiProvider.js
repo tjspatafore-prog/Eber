@@ -70,7 +70,12 @@ export async function generateTutorReply({
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY is not configured. Open Settings (or Vercel Env Vars) to add your Google Gemini API key.');
     }
-    const targetModel = activeModel || 'gemini-2.5-flash';
+    const targetModel = (activeModel || 'gemini-2.5-flash').trim().replace(/^models\//i, '');
+    if (/\s/.test(targetModel)) {
+      throw new Error(
+        `Invalid Gemini Model ID "${targetModel}" (model IDs cannot contain spaces). Choose a valid API model ID in API & Settings such as "gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview", or "gemini-3.1-pro-preview".`
+      );
+    }
     const contents = messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
@@ -89,9 +94,15 @@ export async function generateTutorReply({
       }
     );
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error?.message || `Gemini API error (${res.status})`);
+      const msg = data.error?.message || `Gemini API error (${res.status})`;
+      if (res.status === 404) {
+        throw new Error(
+          `Model "${targetModel}" was not found on your Gemini API key (${msg}). Try "gemini-2.5-flash", "gemini-3-flash-preview", or click "Load My Models" in API & Settings.`
+        );
+      }
+      throw new Error(msg);
     }
     const text =
       data.candidates?.[0]?.content?.parts
@@ -539,6 +550,28 @@ export async function transcribeHebrewWithDeepgram({
     matchScore,
     wordComparison,
   };
+}
+
+export async function listAvailableGeminiModels(keyOverrides = {}) {
+  const apiKey = getApiKey('GEMINI_API_KEY', keyOverrides);
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured. Add your Google Gemini API key first.');
+  }
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error?.message || `Failed to list Gemini models (${res.status})`);
+  }
+  const models = (data.models || [])
+    .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+    .map((m) => ({
+      id: String(m.name || '').replace(/^models\//, ''),
+      displayName: m.displayName || m.name,
+    }))
+    .filter((m) => m.id.startsWith('gemini-'));
+  return models;
 }
 
 export async function testProviderConnection(provider, keyOverrides = {}, settingsOverride = null) {

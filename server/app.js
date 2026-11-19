@@ -27,6 +27,7 @@ import {
   synthesizeHebrewSpeech,
   transcribeHebrewWithDeepgram,
   testProviderConnection,
+  listAvailableGeminiModels,
 } from './services/aiProvider.js';
 
 loadEnv();
@@ -183,6 +184,17 @@ app.delete('/api/flashcards/:id', (req, res) => {
   res.json({ flashcards });
 });
 
+// List live Gemini models available to the configured key
+app.get('/api/ai/models', async (req, res) => {
+  try {
+    const models = await listAvailableGeminiModels(extractRequestKeyOverrides(req));
+    res.json({ models });
+  } catch (err) {
+    console.error('[Eber API /api/ai/models]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // AI Tutor Chat
 app.post('/api/ai/chat', async (req, res) => {
   try {
@@ -201,6 +213,7 @@ app.post('/api/ai/chat', async (req, res) => {
     });
     res.json(result);
   } catch (err) {
+    console.error('[Eber API /api/ai/chat]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

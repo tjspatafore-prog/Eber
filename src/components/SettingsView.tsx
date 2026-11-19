@@ -30,6 +30,35 @@ const PROVIDERS = [
   { id: 'qwen', keyField: 'QWEN_API_KEY', label: 'Alibaba Cloud (Qwen / DashScope)', recommended: false },
 ] as const;
 
+const MODEL_PRESETS: Record<string, { id: string; label: string }[]> = {
+  gemini: [
+    { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Recommended — Fast & Low Cost)' },
+    { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Deep Grammar & Manuscript Study)' },
+    { id: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Gemini 3 Flash Preview)' },
+    { id: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Gemini 3.1 Pro Preview)' },
+  ],
+  openai: [
+    { id: 'gpt-4o-mini', label: 'gpt-4o-mini (Fast & Affordable)' },
+    { id: 'gpt-4o', label: 'gpt-4o (Flagship)' },
+  ],
+  anthropic: [
+    { id: 'claude-sonnet-4-20250514', label: 'claude-sonnet-4-20250514 (Claude Sonnet)' },
+    { id: 'claude-3-5-haiku-latest', label: 'claude-3-5-haiku-latest (Fast)' },
+  ],
+  grok: [
+    { id: 'grok-3-mini', label: 'grok-3-mini' },
+    { id: 'grok-3', label: 'grok-3' },
+  ],
+  kimi: [
+    { id: 'kimi-k2-0711-preview', label: 'kimi-k2-0711-preview' },
+    { id: 'moonshot-v1-8k', label: 'moonshot-v1-8k' },
+  ],
+  qwen: [
+    { id: 'qwen-plus', label: 'qwen-plus' },
+    { id: 'qwen-max', label: 'qwen-max' },
+  ],
+};
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   deployment,
   pinProtected,
@@ -46,6 +75,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedMsg, setSavedMsg] = useState('');
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [liveGeminiModels, setLiveGeminiModels] = useState<{ id: string; displayName: string }[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsErr, setModelsErr] = useState('');
+
+  const handleLoadGeminiModels = async () => {
+    setLoadingModels(true);
+    setModelsErr('');
+    try {
+      const res = await api.listGeminiModels();
+      setLiveGeminiModels(res.models || []);
+    } catch (err: any) {
+      setModelsErr(err.message || 'Could not fetch Gemini models.');
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,9 +298,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div>
-            <label className="text-xs font-bold uppercase text-amber-900 block mb-1">
-              Model ID for Selected Tutor
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-bold uppercase text-amber-900">
+                Model ID for Selected Tutor
+              </label>
+              {localSettings.tutorProvider === 'gemini' && (
+                <button
+                  type="button"
+                  onClick={handleLoadGeminiModels}
+                  disabled={loadingModels}
+                  className="text-[11px] font-semibold text-amber-800 hover:underline cursor-pointer"
+                >
+                  {loadingModels ? 'Loading...' : 'Load My Live Gemini Models'}
+                </button>
+              )}
+            </div>
+
+            <select
+              value={
+                (
+                  localSettings.tutorProvider === 'gemini' && liveGeminiModels.length > 0
+                    ? liveGeminiModels.map((m) => m.id)
+                    : (MODEL_PRESETS[localSettings.tutorProvider] || []).map((m) => m.id)
+                ).includes(localSettings.tutorModels[localSettings.tutorProvider] || '')
+                  ? localSettings.tutorModels[localSettings.tutorProvider]
+                  : '__custom__'
+              }
+              onChange={(e) => {
+                if (e.target.value !== '__custom__') {
+                  setLocalSettings({
+                    ...localSettings,
+                    tutorModels: {
+                      ...localSettings.tutorModels,
+                      [localSettings.tutorProvider]: e.target.value,
+                    },
+                  });
+                }
+              }}
+              className="w-full rounded-xl border border-[#dfd1b7] bg-white px-3 py-2.5 text-sm mb-2"
+            >
+              {localSettings.tutorProvider === 'gemini' && liveGeminiModels.length > 0
+                ? liveGeminiModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id} ({m.displayName})
+                    </option>
+                  ))
+                : (MODEL_PRESETS[localSettings.tutorProvider] || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+              <option value="__custom__">Custom exact API Model ID...</option>
+            </select>
+
             <input
               type="text"
               value={localSettings.tutorModels[localSettings.tutorProvider] || ''}
@@ -268,8 +363,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   },
                 })
               }
-              className="w-full rounded-xl border border-[#dfd1b7] bg-white px-3 py-2.5 text-sm"
+              placeholder="Exact API model ID (no spaces, e.g. gemini-2.5-flash)"
+              className="w-full rounded-xl border border-[#dfd1b7] bg-[#fcfaf5] px-3 py-2 text-xs font-mono"
             />
+            {modelsErr && <div className="text-[11px] text-red-700 mt-1">{modelsErr}</div>}
           </div>
 
           <div>
@@ -307,10 +404,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               }
               className="w-full rounded-xl border border-[#dfd1b7] bg-white px-3 py-2.5 text-sm"
             >
-              <option value="gemini">Google Gemini Native Hebrew TTS (Recommended)</option>
+              <option value="gemini">Google Gemini Native Hebrew TTS (Best for Letters &amp; Niqqud)</option>
               <option value="openai">OpenAI TTS (gpt-4o-mini-tts)</option>
               <option value="browser">Free Browser Web Speech (he-IL)</option>
             </select>
+            <p className="text-[11px] text-[#6b5842] mt-1">
+              Google Gemini TTS speaks Hebrew letters &amp; verses aloud cleanly; Deepgram Nova-3 listens to and scores
+              your Hebrew speaking via microphone.
+            </p>
           </div>
         </div>
       </div>
