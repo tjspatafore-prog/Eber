@@ -11,9 +11,19 @@ A complete local web application to take you from **complete beginner** to **flu
 - **Visual SM-2 Flashcards**: Spaced-repetition deck with locally cached AI mnemonic artwork so you never pay twice for the same illustration.
 - **Multi-Provider AI Scribe**: Defaults to **Google Gemini** (`gemini-2.5-flash` + `gemini-2.5-flash-image` + `gemini-2.5-flash-preview-tts`), with one-click switching to **OpenAI, Anthropic Claude, xAI Grok, Kimi, or Qwen**.
 
-## Quick Start
+## Quick Start (Local)
 ```bash
 npm install
 npm run dev
 ```
 Then open **http://localhost:5173** and visit **API & Settings** in the left sidebar to enter your Deepgram and Gemini (or OpenAI/Claude/Grok/Kimi/Qwen) API keys. They are stored locally in `.env`.
+
+## Deploy to Vercel (for Mobile / iPhone / Android)
+1. Go to **[vercel.com/new](https://vercel.com/new)** and import your `Eber` GitHub repository.
+2. Vercel automatically detects `vercel.json` (Vite frontend + Express Serverless Function at `/api/index.js`).
+3. Under **Environment Variables**, add:
+   - `GEMINI_API_KEY` (Tutor + Cheap Mnemonic Images + Hebrew TTS)
+   - `DEEPGRAM_API_KEY` (Nova-3 Hebrew Speech Recognition)
+   - Optional: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROK_API_KEY`, `KIMI_API_KEY`, `QWEN_API_KEY`
+   - **Recommended:** `APP_ACCESS_PIN` (a private PIN so only you can use your API keys on your Vercel URL — enter it once in **API & Settings** on your phone!)
+4. Click **Deploy**, open your `.vercel.app` link on your phone, and tap **Share → Add to Home Screen** to use Eber like a native mobile app! Progress, SM-2 flashcards, and generated mnemonic images cache directly on your phone.

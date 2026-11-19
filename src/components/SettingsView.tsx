@@ -1,12 +1,23 @@
 import React, { useState } from 'react';
-import { CheckCircle2, KeyRound, Loader2, Save, ShieldCheck, XCircle } from 'lucide-react';
-import { api, KeyStatusMap, SettingsData } from '../lib/api';
+import { CheckCircle2, Cloud, KeyRound, Loader2, Lock, Save, ShieldCheck, XCircle } from 'lucide-react';
+import {
+  api,
+  getAccessPin,
+  KeyStatusMap,
+  saveAccessPin,
+  saveDeviceApiKeys,
+  SettingsData,
+} from '../lib/api';
+import { LS_KEYS, saveLocalJson } from '../lib/localCache';
 
 interface SettingsViewProps {
+  deployment: 'local' | 'vercel';
+  pinProtected: boolean;
   settings: SettingsData;
   keys: KeyStatusMap;
   cacheStats: { cachedImages: number; cachedAudio: number };
   onUpdated: (nextSettings: SettingsData, nextKeys: KeyStatusMap) => void;
+  onRefresh: () => Promise<void>;
 }
 
 const PROVIDERS = [
@@ -20,13 +31,17 @@ const PROVIDERS = [
 ] as const;
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
+  deployment,
+  pinProtected,
   settings,
   keys,
   cacheStats,
   onUpdated,
+  onRefresh,
 }) => {
   const [localSettings, setLocalSettings] = useState<SettingsData>(settings);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [accessPin, setAccessPin] = useState<string>(() => getAccessPin());
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
@@ -37,14 +52,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setSaving(true);
     setSavedMsg('');
     try {
-      const res = await api.saveSettings({
-        settings: localSettings,
-        keys: keyInputs,
-      });
-      onUpdated(res.settings, res.keys);
-      setKeyInputs({});
-      setSavedMsg('Settings & API keys saved safely to your local .env file!');
-      setTimeout(() => setSavedMsg(''), 4000);
+      saveAccessPin(accessPin);
+      saveLocalJson(LS_KEYS.SETTINGS, localSettings);
+
+      if (deployment === 'vercel') {
+        // On Vercel, store any entered keys locally on this phone/browser device
+        saveDeviceApiKeys(keyInputs);
+        const res = await api.getSettings();
+        onUpdated(localSettings, res.keys);
+        setKeyInputs({});
+        setSavedMsg('Saved on this device! (Or configure keys once in Vercel Environment Variables.)');
+      } else {
+        const res = await api.saveSettings({
+          settings: localSettings,
+          keys: keyInputs,
+        });
+        onUpdated(res.settings, res.keys);
+        setKeyInputs({});
+        setSavedMsg('Settings & API keys saved safely to your local .env file!');
+      }
+      await onRefresh();
+      setTimeout(() => setSavedMsg(''), 4500);
     } catch (err: any) {
       setSavedMsg(`Error: ${err.message}`);
     } finally {
@@ -66,23 +94,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <form onSubmit={handleSave} className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-[#2b1e10]">
-          API Connections, Voice &amp; Learning Preferences
-        </h1>
-        <p className="text-sm text-[#66543f]">
-          Keys are stored strictly on your local computer inside <code className="bg-[#efe5d3] px-1.5 py-0.5 rounded">.env</code>{' '}
-          and never sent back to the browser in plaintext.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-[#2b1e10]">
+            API Connections, Voice &amp; Learning Preferences
+          </h1>
+          <p className="text-sm text-[#66543f]">
+            {deployment === 'vercel'
+              ? 'Running on Vercel Cloud: set API keys once in Vercel Environment Variables (recommended) OR save them locally on your phone below.'
+              : 'Running locally: keys are stored strictly on your computer inside .env and never sent back to the browser in plaintext.'}
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300">
+          <Cloud className="w-3.5 h-3.5" />
+          Mode: {deployment === 'vercel' ? 'Vercel Cloud / Mobile' : 'Local Studio'}
+        </span>
       </div>
 
-      {/* Cost-Saving Local Cache Indicator */}
+      {/* Optional Access PIN (when deployed publicly on Vercel with server API keys) */}
+      {(deployment === 'vercel' || pinProtected) && (
+        <div className="rounded-2xl bg-indigo-50/80 border border-indigo-200 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
+            <Lock className="w-4 h-4 text-indigo-700" />
+            App Access PIN {pinProtected ? '(Required by Server)' : '(Optional Protection)'}
+          </div>
+          <p className="text-xs text-indigo-900">
+            If you set <code className="bg-white px-1.5 py-0.5 rounded">APP_ACCESS_PIN</code> in Vercel Environment
+            Variables to protect your API credits on a public URL, enter that same PIN here once on your phone.
+          </p>
+          <input
+            type="password"
+            value={accessPin}
+            onChange={(e) => setAccessPin(e.target.value)}
+            placeholder="Enter Access PIN (leave blank if none set)..."
+            className="w-full sm:w-80 rounded-xl border border-indigo-300 bg-white px-3 py-2 text-xs focus:outline-none focus:border-indigo-700"
+          />
+        </div>
+      )}
+
+      {/* Cost-Saving Cache Indicator */}
       <div className="rounded-2xl bg-emerald-50/80 border border-emerald-200 p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 text-emerald-950 text-sm">
           <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" />
           <div>
-            <strong>Local Cost-Saving Cache Active:</strong> Generated mnemonic pictures and Hebrew audio clips are
-            saved permanently on disk so you never pay twice for the same word or letter.
+            <strong>Cost-Saving Mnemonic Cache Active:</strong> Generated illustrations are cached{' '}
+            {deployment === 'vercel' ? 'directly on your phone (IndexedDB)' : 'permanently on disk'} so you never pay
+            twice for the same letter or word.
           </div>
         </div>
         <div className="text-xs font-bold text-emerald-900 bg-white px-3 py-1.5 rounded-xl border border-emerald-200">
@@ -121,7 +178,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         st?.configured ? 'text-emerald-700' : 'text-[#8c7860]'
                       }`}
                     >
-                      {st?.configured ? `Saved (${st.masked})` : 'Not set'}
+                      {st?.configured
+                        ? `Saved${st.source === 'server' ? ' in Server Env' : st.source === 'device' ? ' on Device' : ''} (${st.masked})`
+                        : 'Not set'}
                     </span>
                     <button
                       type="button"
@@ -141,7 +200,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onChange={(e) => setKeyInputs({ ...keyInputs, [p.keyField]: e.target.value })}
                   placeholder={
                     st?.configured
-                      ? 'Leave blank to keep saved key, or paste a new key to replace...'
+                      ? 'Leave blank to keep current key, or paste a new key to replace...'
                       : `Paste your ${p.keyField}...`
                   }
                   className="w-full rounded-lg border border-[#dfd1b7] bg-[#fcfaf5] px-3 py-2 text-xs focus:outline-none focus:border-amber-700"

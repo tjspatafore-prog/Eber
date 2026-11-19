@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { getApiKey, getSettings } from './configStore.js';
+import { getApiKey, getSettings, IS_VERCEL } from './configStore.js';
 import { getCachedImagePath, saveCachedImagePath } from './dataStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -10,8 +10,10 @@ const ROOT_DIR = path.resolve(__dirname, '../..');
 const IMAGE_CACHE_DIR = path.join(ROOT_DIR, 'server', 'cache', 'images');
 const AUDIO_CACHE_DIR = path.join(ROOT_DIR, 'server', 'cache', 'audio');
 
-for (const dir of [IMAGE_CACHE_DIR, AUDIO_CACHE_DIR]) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+if (!IS_VERCEL) {
+  for (const dir of [IMAGE_CACHE_DIR, AUDIO_CACHE_DIR]) {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 const OPENAI_COMPAT_PROVIDERS = {
@@ -49,16 +51,24 @@ Teaching principles:
 4. For pronunciation & speaking, explain both Modern/Sephardi conversational pronunciation and Tiberian Biblical nuances (e.g., gutturals Ayin/Chet, Begadkefat letters, vowel length) when helpful.
 5. Be warm, encouraging, concise, and structured with clean Markdown.`;
 
-export async function generateTutorReply({ messages, systemPrompt, provider, model, temperature = 0.7 }) {
-  const settings = getSettings();
+export async function generateTutorReply({
+  messages,
+  systemPrompt,
+  provider,
+  model,
+  temperature = 0.7,
+  keyOverrides = {},
+  settingsOverride = null,
+}) {
+  const settings = getSettings(settingsOverride);
   const activeProvider = provider || settings.tutorProvider || 'gemini';
   const activeModel = model || settings.tutorModels?.[activeProvider];
   const finalSystem = systemPrompt || HEBREW_TUTOR_SYSTEM_PROMPT;
 
   if (activeProvider === 'gemini') {
-    const apiKey = getApiKey('GEMINI_API_KEY');
+    const apiKey = getApiKey('GEMINI_API_KEY', keyOverrides);
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured. Open Settings to add your Google Gemini API key.');
+      throw new Error('GEMINI_API_KEY is not configured. Open Settings (or Vercel Env Vars) to add your Google Gemini API key.');
     }
     const targetModel = activeModel || 'gemini-2.5-flash';
     const contents = messages.map((m) => ({
@@ -92,7 +102,7 @@ export async function generateTutorReply({ messages, systemPrompt, provider, mod
   }
 
   if (activeProvider === 'anthropic') {
-    const apiKey = getApiKey('ANTHROPIC_API_KEY');
+    const apiKey = getApiKey('ANTHROPIC_API_KEY', keyOverrides);
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not configured. Open Settings to add your Anthropic key.');
     }
@@ -125,7 +135,7 @@ export async function generateTutorReply({ messages, systemPrompt, provider, mod
 
   if (OPENAI_COMPAT_PROVIDERS[activeProvider]) {
     const cfg = OPENAI_COMPAT_PROVIDERS[activeProvider];
-    const apiKey = getApiKey(cfg.envKey);
+    const apiKey = getApiKey(cfg.envKey, keyOverrides);
     if (!apiKey) {
       throw new Error(`${cfg.envKey} is not configured. Open Settings to add your key.`);
     }
@@ -160,18 +170,26 @@ export async function generateTutorReply({ messages, systemPrompt, provider, mod
 }
 
 /**
- * Cheap Visual Mnemonic Image Generation with local disk caching.
- * Defaults to Google Gemini (gemini-2.5-flash-image) or OpenAI (gpt-image-1-mini).
+ * Cheap Visual Mnemonic Image Generation.
+ * Caches to local disk when running locally; returns inline data URL (cached in browser IndexedDB) on Vercel.
  */
-export async function generateMnemonicImage({ concept, hebrew, pictograph, styleHint, forceRegenerate = false }) {
-  const settings = getSettings();
+export async function generateMnemonicImage({
+  concept,
+  hebrew,
+  pictograph,
+  styleHint,
+  forceRegenerate = false,
+  keyOverrides = {},
+  settingsOverride = null,
+}) {
+  const settings = getSettings(settingsOverride);
   const provider = settings.imageProvider || 'gemini';
   const cacheKey = crypto
     .createHash('sha1')
     .update(`${provider}|${concept}|${hebrew || ''}|${pictograph || ''}`)
     .digest('hex');
 
-  if (!forceRegenerate) {
+  if (!IS_VERCEL && !forceRegenerate) {
     const existing = getCachedImagePath(cacheKey);
     if (existing) {
       const diskPath = path.join(ROOT_DIR, 'server', existing.replace(/^\//, ''));
@@ -185,18 +203,20 @@ export async function generateMnemonicImage({ concept, hebrew, pictograph, style
     'Create a warm, museum-grade illuminated educational illustration on antique cream parchment paper for a Hebrew language flashcard.',
     `Concept: "${concept}".`,
     pictograph ? `Ancient Near Eastern pictographic motif: ${pictograph}.` : '',
-    styleHint || 'Hand-inked sepia and lapis lazuli watercolor woodcut style, clear iconic visual storytelling, uncluttered composition, no garbled text or watermarks.',
+    styleHint ||
+      'Hand-inked sepia and lapis lazuli watercolor woodcut style, clear iconic visual storytelling, uncluttered composition, no garbled text or watermarks.',
   ]
     .filter(Boolean)
     .join(' ');
 
   let imageBuffer = null;
   let ext = 'png';
+  let mimeType = 'image/png';
 
   if (provider === 'gemini') {
-    const apiKey = getApiKey('GEMINI_API_KEY');
+    const apiKey = getApiKey('GEMINI_API_KEY', keyOverrides);
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured for image generation. Add it in Settings.');
+      throw new Error('GEMINI_API_KEY is not configured for image generation. Add it in Settings or Vercel Env Vars.');
     }
     const imageModel = settings.imageModel || 'gemini-2.5-flash-image';
     const res = await fetch(
@@ -221,17 +241,18 @@ export async function generateMnemonicImage({ concept, hebrew, pictograph, style
     if (!imgPart) {
       throw new Error('Gemini did not return an image part. Try switching image model in Settings.');
     }
-    const mime = imgPart.inlineData.mimeType || 'image/png';
-    ext = mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : 'png';
+    mimeType = imgPart.inlineData.mimeType || 'image/png';
+    ext = mimeType.includes('jpeg') || mimeType.includes('jpg') ? 'jpg' : 'png';
     imageBuffer = Buffer.from(imgPart.inlineData.data, 'base64');
   } else if (provider === 'openai') {
-    const apiKey = getApiKey('OPENAI_API_KEY');
+    const apiKey = getApiKey('OPENAI_API_KEY', keyOverrides);
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is not configured for image generation. Add it in Settings.');
     }
-    const model = settings.imageModel?.startsWith('gpt-image') || settings.imageModel === 'dall-e-3'
-      ? settings.imageModel
-      : 'gpt-image-1-mini';
+    const model =
+      settings.imageModel?.startsWith('gpt-image') || settings.imageModel === 'dall-e-3'
+        ? settings.imageModel
+        : 'gpt-image-1-mini';
     const body =
       model === 'dall-e-3'
         ? { model, prompt, size: '1024x1024', response_format: 'b64_json' }
@@ -255,6 +276,11 @@ export async function generateMnemonicImage({ concept, hebrew, pictograph, style
     throw new Error(`Image provider "${provider}" is not supported. Choose Gemini or OpenAI in Settings.`);
   }
 
+  if (IS_VERCEL) {
+    const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+    return { imageUrl: dataUrl, cached: false, provider };
+  }
+
   const filename = `${cacheKey}.${ext}`;
   const fullPath = path.join(IMAGE_CACHE_DIR, filename);
   fs.writeFileSync(fullPath, imageBuffer);
@@ -264,9 +290,6 @@ export async function generateMnemonicImage({ concept, hebrew, pictograph, style
   return { imageUrl: publicUrl, cached: false, provider };
 }
 
-/**
- * Wraps raw 16-bit signed little-endian PCM into a standard WAV buffer.
- */
 function pcm16ToWav(pcmBuffer, sampleRate = 24000, numChannels = 1) {
   const header = Buffer.alloc(44);
   const byteRate = sampleRate * numChannels * 2;
@@ -277,13 +300,13 @@ function pcm16ToWav(pcmBuffer, sampleRate = 24000, numChannels = 1) {
   header.writeUInt32LE(36 + dataSize, 4);
   header.write('WAVE', 8);
   header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16); // PCM chunk size
-  header.writeUInt16LE(1, 20); // AudioFormat = 1 (PCM)
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
   header.writeUInt16LE(numChannels, 22);
   header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(byteRate, 28);
   header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(16, 34); // BitsPerSample
+  header.writeUInt16LE(16, 34);
   header.write('data', 36);
   header.writeUInt32LE(dataSize, 40);
 
@@ -291,11 +314,16 @@ function pcm16ToWav(pcmBuffer, sampleRate = 24000, numChannels = 1) {
 }
 
 /**
- * Hebrew TTS with disk caching.
- * Supports Gemini Native TTS (gemini-2.5-flash-preview-tts) & OpenAI TTS.
+ * Hebrew TTS — caches to disk locally, returns inline data URL on Vercel.
  */
-export async function synthesizeHebrewSpeech({ text, mode = 'biblical', slow = false }) {
-  const settings = getSettings();
+export async function synthesizeHebrewSpeech({
+  text,
+  mode = 'biblical',
+  slow = false,
+  keyOverrides = {},
+  settingsOverride = null,
+}) {
+  const settings = getSettings(settingsOverride);
   const provider = settings.ttsProvider || 'gemini';
   const voice = settings.ttsVoice || 'Kore';
   const cacheKey = crypto
@@ -306,15 +334,17 @@ export async function synthesizeHebrewSpeech({ text, mode = 'biblical', slow = f
   const wavPath = path.join(AUDIO_CACHE_DIR, `${cacheKey}.wav`);
   const mp3Path = path.join(AUDIO_CACHE_DIR, `${cacheKey}.mp3`);
 
-  if (fs.existsSync(wavPath)) {
-    return { audioUrl: `/cache/audio/${cacheKey}.wav`, cached: true, provider };
-  }
-  if (fs.existsSync(mp3Path)) {
-    return { audioUrl: `/cache/audio/${cacheKey}.mp3`, cached: true, provider };
+  if (!IS_VERCEL) {
+    if (fs.existsSync(wavPath)) {
+      return { audioUrl: `/cache/audio/${cacheKey}.wav`, cached: true, provider };
+    }
+    if (fs.existsSync(mp3Path)) {
+      return { audioUrl: `/cache/audio/${cacheKey}.mp3`, cached: true, provider };
+    }
   }
 
   if (provider === 'gemini') {
-    const apiKey = getApiKey('GEMINI_API_KEY');
+    const apiKey = getApiKey('GEMINI_API_KEY', keyOverrides);
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY missing for Gemini TTS (browser fallback available).');
     }
@@ -355,25 +385,39 @@ export async function synthesizeHebrewSpeech({ text, mode = 'biblical', slow = f
     const mime = part.inlineData.mimeType || 'audio/L16;rate=24000';
     const rawBuf = Buffer.from(part.inlineData.data, 'base64');
 
+    let finalBuf = rawBuf;
+    let outMime = 'audio/wav';
+    let outPath = wavPath;
+
     if (mime.toLowerCase().includes('l16') || mime.toLowerCase().includes('pcm')) {
       const rateMatch = mime.match(/rate=(\d+)/i);
       const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
-      const wavBuf = pcm16ToWav(rawBuf, sampleRate, 1);
-      fs.writeFileSync(wavPath, wavBuf);
-      return { audioUrl: `/cache/audio/${cacheKey}.wav`, cached: false, provider: 'gemini' };
-    } else {
-      const outPath = mime.includes('mpeg') || mime.includes('mp3') ? mp3Path : wavPath;
-      fs.writeFileSync(outPath, rawBuf);
+      finalBuf = pcm16ToWav(rawBuf, sampleRate, 1);
+      outMime = 'audio/wav';
+      outPath = wavPath;
+    } else if (mime.includes('mpeg') || mime.includes('mp3')) {
+      outMime = 'audio/mpeg';
+      outPath = mp3Path;
+    }
+
+    if (IS_VERCEL) {
       return {
-        audioUrl: `/cache/audio/${path.basename(outPath)}`,
+        audioUrl: `data:${outMime};base64,${finalBuf.toString('base64')}`,
         cached: false,
         provider: 'gemini',
       };
     }
+
+    fs.writeFileSync(outPath, finalBuf);
+    return {
+      audioUrl: `/cache/audio/${path.basename(outPath)}`,
+      cached: false,
+      provider: 'gemini',
+    };
   }
 
   if (provider === 'openai') {
-    const apiKey = getApiKey('OPENAI_API_KEY');
+    const apiKey = getApiKey('OPENAI_API_KEY', keyOverrides);
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY missing for OpenAI TTS.');
     }
@@ -395,6 +439,13 @@ export async function synthesizeHebrewSpeech({ text, mode = 'biblical', slow = f
       throw new Error(`OpenAI TTS error (${res.status}): ${errText}`);
     }
     const buf = Buffer.from(await res.arrayBuffer());
+    if (IS_VERCEL) {
+      return {
+        audioUrl: `data:audio/mpeg;base64,${buf.toString('base64')}`,
+        cached: false,
+        provider: 'openai',
+      };
+    }
     fs.writeFileSync(mp3Path, buf);
     return { audioUrl: `/cache/audio/${cacheKey}.mp3`, cached: false, provider: 'openai' };
   }
@@ -402,9 +453,6 @@ export async function synthesizeHebrewSpeech({ text, mode = 'biblical', slow = f
   throw new Error('Use browser speech synthesis when ttsProvider is set to browser.');
 }
 
-/**
- * Strip Hebrew niqqud & cantillation marks (U+0591-U+05C7) and punctuation for fuzzy comparison.
- */
 export function stripHebrewMarks(str = '') {
   return str
     .replace(/[\u0591-\u05C7]/g, '')
@@ -416,10 +464,16 @@ export function stripHebrewMarks(str = '') {
 /**
  * Deepgram Nova-3 Hebrew Speech-to-Text + Pronunciation Scoring
  */
-export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'audio/webm', targetHebrew = '', keyterms = [] }) {
-  const apiKey = getApiKey('DEEPGRAM_API_KEY');
+export async function transcribeHebrewWithDeepgram({
+  audioBuffer,
+  mimeType = 'audio/webm',
+  targetHebrew = '',
+  keyterms = [],
+  keyOverrides = {},
+}) {
+  const apiKey = getApiKey('DEEPGRAM_API_KEY', keyOverrides);
   if (!apiKey) {
-    throw new Error('DEEPGRAM_API_KEY is not configured. Open Settings to add your Deepgram API key.');
+    throw new Error('DEEPGRAM_API_KEY is not configured. Open Settings (or Vercel Env Vars) to add your Deepgram API key.');
   }
 
   const params = new URLSearchParams({
@@ -428,7 +482,6 @@ export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'au
     smart_format: 'true',
   });
 
-  // Add keyterm hints from target Hebrew to boost Biblical vocabulary accuracy
   const cleanTargetWords = stripHebrewMarks(targetHebrew)
     .split(' ')
     .filter((w) => w.length >= 2)
@@ -438,11 +491,14 @@ export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'au
     params.append('keyterm', term);
   }
 
+  // Strip ;codecs=... suffix cleanly for iOS Safari audio/mp4 compatibility
+  const cleanMime = (mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm';
+
   const res = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
     method: 'POST',
     headers: {
       Authorization: `Token ${apiKey}`,
-      'Content-Type': mimeType || 'audio/webm',
+      'Content-Type': cleanMime,
     },
     body: audioBuffer,
   });
@@ -457,7 +513,6 @@ export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'au
   const confidence = alt.confidence ?? 0;
   const words = alt.words || [];
 
-  // Compare against target Hebrew if provided
   let matchScore = null;
   let wordComparison = [];
   if (targetHebrew) {
@@ -466,7 +521,6 @@ export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'au
 
     let matched = 0;
     wordComparison = targetWords.map((tw) => {
-      // Exact or close consonant overlap (handles plene/defective vav/yod spelling)
       const norm = (s) => s.replace(/[וי]/g, '');
       const hit = spokenWords.some(
         (sw) => sw === tw || (norm(sw).length >= 2 && norm(sw) === norm(tw))
@@ -487,9 +541,9 @@ export async function transcribeHebrewWithDeepgram({ audioBuffer, mimeType = 'au
   };
 }
 
-export async function testProviderConnection(provider) {
+export async function testProviderConnection(provider, keyOverrides = {}, settingsOverride = null) {
   if (provider === 'deepgram') {
-    const apiKey = getApiKey('DEEPGRAM_API_KEY');
+    const apiKey = getApiKey('DEEPGRAM_API_KEY', keyOverrides);
     if (!apiKey) return { ok: false, message: 'No Deepgram API key saved.' };
     const res = await fetch('https://api.deepgram.com/v1/projects', {
       headers: { Authorization: `Token ${apiKey}` },
@@ -504,6 +558,8 @@ export async function testProviderConnection(provider) {
       messages: [{ role: 'user', content: 'Reply with ONLY the Hebrew word Shalom (שָׁלוֹם).' }],
       systemPrompt: 'Reply concisely.',
       temperature: 0.1,
+      keyOverrides,
+      settingsOverride,
     });
     return { ok: true, message: `Connected (${reply.model}): ${reply.text}` };
   } catch (err) {

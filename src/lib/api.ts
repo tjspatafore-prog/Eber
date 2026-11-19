@@ -1,3 +1,11 @@
+import {
+  getCachedBrowserImage,
+  loadLocalJson,
+  LS_KEYS,
+  saveCachedBrowserImage,
+  saveLocalJson,
+} from './localCache';
+
 export interface SettingsData {
   tutorProvider: 'gemini' | 'openai' | 'anthropic' | 'grok' | 'kimi' | 'qwen';
   tutorModels: Record<string, string>;
@@ -14,6 +22,7 @@ export interface KeyStatusMap {
   [key: string]: {
     configured: boolean;
     masked: string;
+    source?: 'server' | 'device' | 'none';
   };
 }
 
@@ -46,10 +55,71 @@ export interface StoreData {
   profile: UserProfile;
   flashcards: Flashcard[];
   imageCacheIndex: Record<string, string>;
+  deployment?: 'local' | 'vercel';
+}
+
+const HEADER_KEY_MAP: Record<string, string> = {
+  DEEPGRAM_API_KEY: 'x-key-deepgram',
+  GEMINI_API_KEY: 'x-key-gemini',
+  OPENAI_API_KEY: 'x-key-openai',
+  ANTHROPIC_API_KEY: 'x-key-anthropic',
+  GROK_API_KEY: 'x-key-grok',
+  KIMI_API_KEY: 'x-key-kimi',
+  QWEN_API_KEY: 'x-key-qwen',
+};
+
+export function getDeviceApiKeys(): Record<string, string> {
+  return loadLocalJson<Record<string, string>>(LS_KEYS.DEVICE_API_KEYS, {});
+}
+
+export function saveDeviceApiKeys(updates: Record<string, string>): void {
+  const current = getDeviceApiKeys();
+  for (const [k, v] of Object.entries(updates)) {
+    const trimmed = (v || '').trim();
+    if (trimmed.includes('••••')) continue;
+    if (trimmed === '') delete current[k];
+    else current[k] = trimmed;
+  }
+  saveLocalJson(LS_KEYS.DEVICE_API_KEYS, current);
+}
+
+export function getAccessPin(): string {
+  return localStorage.getItem(LS_KEYS.ACCESS_PIN) || '';
+}
+
+export function saveAccessPin(pin: string): void {
+  if (!pin.trim()) localStorage.removeItem(LS_KEYS.ACCESS_PIN);
+  else localStorage.setItem(LS_KEYS.ACCESS_PIN, pin.trim());
+}
+
+function buildAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  const pin = getAccessPin();
+  if (pin) headers['x-access-pin'] = pin;
+
+  const deviceKeys = getDeviceApiKeys();
+  for (const [envKey, headerName] of Object.entries(HEADER_KEY_MAP)) {
+    if (deviceKeys[envKey]) {
+      headers[headerName] = deviceKeys[envKey];
+    }
+  }
+
+  const localSettings = loadLocalJson<SettingsData | null>(LS_KEYS.SETTINGS, null);
+  if (localSettings) {
+    headers['x-eber-settings'] = JSON.stringify(localSettings);
+  }
+  return headers;
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const isFormData = init?.body instanceof FormData;
+  const baseHeaders = buildAuthHeaders(isFormData ? {} : { 'Content-Type': 'application/json' });
+  const mergedHeaders = {
+    ...baseHeaders,
+    ...((init?.headers as Record<string, string>) || {}),
+  };
+
+  const res = await fetch(url, { ...init, headers: mergedHeaders });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || `Request failed (${res.status})`);
@@ -59,21 +129,23 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getSettings: () =>
-    req<{ settings: SettingsData; keys: KeyStatusMap; cacheStats: { cachedImages: number; cachedAudio: number } }>(
-      '/api/settings'
-    ),
+    req<{
+      deployment: 'local' | 'vercel';
+      pinProtected: boolean;
+      settings: SettingsData;
+      keys: KeyStatusMap;
+      cacheStats: { cachedImages: number; cachedAudio: number };
+    }>('/api/settings'),
 
   saveSettings: (payload: { settings?: Partial<SettingsData>; keys?: Record<string, string> }) =>
-    req<{ ok: boolean; settings: SettingsData; keys: KeyStatusMap }>('/api/settings', {
+    req<{ ok: boolean; deployment: 'local' | 'vercel'; settings: SettingsData; keys: KeyStatusMap }>('/api/settings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
 
   testProvider: (provider: string) =>
     req<{ ok: boolean; message: string }>('/api/settings/test', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider }),
     }),
 
@@ -82,35 +154,30 @@ export const api = {
   completeLesson: (lessonId: string, xpGain = 25) =>
     req<{ profile: UserProfile }>('/api/progress/lesson', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lessonId, xpGain }),
     }),
 
   toggleLetterMastery: (letterId: string, mastered: boolean) =>
     req<{ profile: UserProfile }>('/api/progress/letter', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ letterId, mastered }),
     }),
 
   markPassageRead: (passageId: string) =>
     req<{ profile: UserProfile }>('/api/progress/passage', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passageId }),
     }),
 
   upsertFlashcard: (card: Partial<Flashcard>) =>
     req<{ flashcards: Flashcard[] }>('/api/flashcards', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(card),
     }),
 
   reviewFlashcard: (id: string, quality: 1 | 2 | 3 | 4) =>
     req<{ card: Flashcard; profile: UserProfile }>(`/api/flashcards/${encodeURIComponent(id)}/review`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quality }),
     }),
 
@@ -122,7 +189,6 @@ export const api = {
   chat: (messages: { role: 'user' | 'assistant'; content: string }[], provider?: string) =>
     req<{ text: string; provider: string; model: string }>('/api/ai/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, provider }),
     }),
 
@@ -143,33 +209,43 @@ export const api = {
       model: string;
     }>('/api/ai/conversation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
 
   analyzePassage: (payload: { reference?: string; hebrewText?: string; provider?: string }) =>
     req<{ text: string; provider: string; model: string }>('/api/ai/analyze-passage', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
 
-  generateImage: (payload: {
+  generateImage: async (payload: {
     concept: string;
     hebrew?: string;
     pictograph?: string;
     styleHint?: string;
     forceRegenerate?: boolean;
-  }) =>
-    req<{ imageUrl: string; cached: boolean; provider: string }>('/api/ai/image', {
+  }) => {
+    const cacheKey = `${payload.concept}|${payload.hebrew || ''}`;
+    if (!payload.forceRegenerate) {
+      const browserCached = await getCachedBrowserImage(cacheKey);
+      if (browserCached) {
+        return { imageUrl: browserCached, cached: true, provider: 'browser-cache' };
+      }
+    }
+    const res = await req<{ imageUrl: string; cached: boolean; provider: string }>('/api/ai/image', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }),
+    });
+    if (res.imageUrl) {
+      await saveCachedBrowserImage(cacheKey, res.imageUrl);
+    }
+    return res;
+  },
 
   transcribeHebrew: async (audioBlob: Blob, targetHebrew = '', keyterms: string[] = []) => {
+    const ext = audioBlob.type.includes('mp4') ? 'm4a' : 'webm';
     const form = new FormData();
-    form.append('audio', audioBlob, 'recording.webm');
+    form.append('audio', audioBlob, `recording.${ext}`);
     form.append('targetHebrew', targetHebrew);
     if (keyterms.length > 0) form.append('keyterms', keyterms.join(','));
     return req<{
@@ -184,11 +260,28 @@ export const api = {
   },
 };
 
+/**
+ * Picks an iOS Safari + Android Chrome + Desktop compatible audio MIME type for MediaRecorder.
+ */
+export function getPreferredAudioMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return undefined;
+}
+
 let currentAudio: HTMLAudioElement | null = null;
 
 /**
- * Play spoken Hebrew: tries AI TTS (Gemini/OpenAI, cached on disk) and seamlessly falls back
- * to the browser's built-in Hebrew Web Speech API if no TTS key is configured yet.
+ * Play spoken Hebrew: tries AI TTS (Gemini/OpenAI) with device/server keys,
+ * and falls back seamlessly to the browser's built-in Hebrew Web Speech API.
  */
 export async function speakHebrew(
   text: string,
@@ -203,7 +296,7 @@ export async function speakHebrew(
   try {
     const res = await fetch('/api/speech/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, mode, slow }),
     });
     const data = await res.json();
@@ -217,7 +310,6 @@ export async function speakHebrew(
     // fall through to Web Speech API
   }
 
-  // Free browser fallback
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
@@ -233,10 +325,6 @@ export async function speakHebrew(
   return { usedProvider: 'none' };
 }
 
-/**
- * Convert square Hebrew letters into approximate Paleo-Hebrew / Phoenician Unicode glyphs
- * for visual script comparison with ancient inscriptions & Qumran Paleo-Hebrew manuscripts.
- */
 const SQUARE_TO_PALEO: Record<string, string> = {
   א: '𐤀',
   ב: '𐤁',

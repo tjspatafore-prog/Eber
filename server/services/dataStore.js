@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { IS_VERCEL } from './configStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '../..');
@@ -21,7 +22,10 @@ const DEFAULT_STORE = {
   notes: [],
 };
 
+let memoryStore = structuredClone(DEFAULT_STORE);
+
 function ensureDir(filePath) {
+  if (IS_VERCEL) return;
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -29,6 +33,9 @@ function ensureDir(filePath) {
 }
 
 export function readStore() {
+  if (IS_VERCEL) {
+    return structuredClone(memoryStore);
+  }
   ensureDir(STORE_PATH);
   if (!fs.existsSync(STORE_PATH)) {
     fs.writeFileSync(STORE_PATH, JSON.stringify(DEFAULT_STORE, null, 2), 'utf8');
@@ -50,6 +57,10 @@ export function readStore() {
 }
 
 export function writeStore(data) {
+  if (IS_VERCEL) {
+    memoryStore = structuredClone(data);
+    return data;
+  }
   ensureDir(STORE_PATH);
   const tmpPath = `${STORE_PATH}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
@@ -100,7 +111,6 @@ export function upsertFlashcard(card) {
 }
 
 export function reviewFlashcard(id, quality) {
-  // SM-2 spaced repetition algorithm (quality: 1=Again, 2=Hard, 3=Good, 4=Easy -> mapped to 0..5)
   const qMap = { 1: 1, 2: 3, 3: 4, 4: 5 };
   const q = qMap[quality] ?? 4;
   const store = readStore();
@@ -113,7 +123,7 @@ export function reviewFlashcard(id, quality) {
 
   if (q < 3) {
     reps = 0;
-    interval = 0.01; // review again in ~15 mins
+    interval = 0.01;
   } else {
     if (reps === 0) interval = 1;
     else if (reps === 1) interval = 6;
@@ -141,11 +151,13 @@ export function deleteFlashcard(id) {
 }
 
 export function getCachedImagePath(cacheKey) {
+  if (IS_VERCEL) return null;
   const store = readStore();
   return store.imageCacheIndex[cacheKey] || null;
 }
 
 export function saveCachedImagePath(cacheKey, publicUrl) {
+  if (IS_VERCEL) return;
   const store = readStore();
   store.imageCacheIndex[cacheKey] = publicUrl;
   writeStore(store);

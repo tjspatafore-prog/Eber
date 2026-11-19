@@ -1,0 +1,10 @@
+{
+  "name": "Eber — Biblical & Spoken Hebrew Academy",
+  "short_name": "Eber Hebrew",
+  "description": "Learn Biblical & Spoken Hebrew from complete beginner to ancient manuscripts (Leningrad, Aleppo, Dead Sea Scrolls).",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf6ee",
+  "theme_color": "#241a11",
+  "icons": []
+}

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, Flashcard, KeyStatusMap, SettingsData, UserProfile } from './lib/api';
+import { countCachedBrowserImages, loadLocalJson, LS_KEYS, saveLocalJson } from './lib/localCache';
 import { STARTER_FLASHCARDS } from './data/curriculum';
 import { DashboardView } from './components/DashboardView';
 import { AlphabetView } from './components/AlphabetView';
@@ -62,47 +63,105 @@ const DEFAULT_SETTINGS: SettingsData = {
   showTransliteration: true,
 };
 
+function makeStarterCards(): Flashcard[] {
+  const now = Date.now();
+  return STARTER_FLASHCARDS.map((c) => ({
+    ...c,
+    ease: 2.5,
+    intervalDays: 0,
+    repetitions: 0,
+    dueAt: now,
+  }));
+}
+
+function applySm2(card: Flashcard, quality: 1 | 2 | 3 | 4): Flashcard {
+  const qMap = { 1: 1, 2: 3, 3: 4, 4: 5 };
+  const q = qMap[quality] ?? 4;
+  let ease = card.ease ?? 2.5;
+  let reps = card.repetitions ?? 0;
+  let interval = card.intervalDays ?? 0;
+
+  if (q < 3) {
+    reps = 0;
+    interval = 0.01;
+  } else {
+    if (reps === 0) interval = 1;
+    else if (reps === 1) interval = 6;
+    else interval = Math.round(interval * ease);
+    reps += 1;
+  }
+  ease = Math.max(1.3, ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
+  return {
+    ...card,
+    ease: Number(ease.toFixed(2)),
+    repetitions: reps,
+    intervalDays: interval,
+    dueAt: Date.now() + interval * 86400000,
+  };
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [deployment, setDeployment] = useState<'local' | 'vercel'>('local');
+  const [pinProtected, setPinProtected] = useState(false);
 
-  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
-  const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
-  const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
+  const [profile, setProfile] = useState<UserProfile>(() =>
+    loadLocalJson<UserProfile>(LS_KEYS.PROFILE, DEFAULT_PROFILE)
+  );
+  const [flashcards, setFlashcards] = useState<Flashcard[]>(() => {
+    const saved = loadLocalJson<Flashcard[]>(LS_KEYS.FLASHCARDS, []);
+    return saved.length > 0 ? saved : makeStarterCards();
+  });
+  const [settings, setSettings] = useState<SettingsData>(() =>
+    loadLocalJson<SettingsData>(LS_KEYS.SETTINGS, DEFAULT_SETTINGS)
+  );
   const [keys, setKeys] = useState<KeyStatusMap>({});
   const [cacheStats, setCacheStats] = useState({ cachedImages: 0, cachedAudio: 0 });
   const [queuedTutorPrompt, setQueuedTutorPrompt] = useState<string | null>(null);
 
+  // Keep localStorage always synchronized for instant mobile/Vercel persistence
+  useEffect(() => {
+    saveLocalJson(LS_KEYS.PROFILE, profile);
+  }, [profile]);
+
+  useEffect(() => {
+    saveLocalJson(LS_KEYS.FLASHCARDS, flashcards);
+  }, [flashcards]);
+
+  useEffect(() => {
+    saveLocalJson(LS_KEYS.SETTINGS, settings);
+  }, [settings]);
+
   const loadInitial = async () => {
+    const browserImgCount = await countCachedBrowserImages();
     try {
-      const [storeRes, settingsRes] = await Promise.all([api.getStore(), api.getSettings()]);
-      setProfile(storeRes.profile);
+      const settingsRes = await api.getSettings();
+      setDeployment(settingsRes.deployment || 'local');
+      setPinProtected(Boolean(settingsRes.pinProtected));
       setSettings(settingsRes.settings);
       setKeys(settingsRes.keys);
-      setCacheStats(settingsRes.cacheStats);
+      setCacheStats({
+        cachedImages: Math.max(settingsRes.cacheStats.cachedImages, browserImgCount),
+        cachedAudio: settingsRes.cacheStats.cachedAudio,
+      });
 
-      // Seed starter flashcards on first run
-      if (storeRes.flashcards.length === 0) {
-        let latestCards: Flashcard[] = [];
-        for (const sc of STARTER_FLASHCARDS) {
-          const r = await api.upsertFlashcard(sc);
-          latestCards = r.flashcards;
+      if (settingsRes.deployment !== 'vercel') {
+        const storeRes = await api.getStore();
+        setProfile(storeRes.profile);
+        if (storeRes.flashcards.length === 0) {
+          let latestCards: Flashcard[] = [];
+          for (const sc of STARTER_FLASHCARDS) {
+            const r = await api.upsertFlashcard(sc);
+            latestCards = r.flashcards;
+          }
+          setFlashcards(latestCards);
+        } else {
+          setFlashcards(storeRes.flashcards);
         }
-        setFlashcards(latestCards);
-      } else {
-        setFlashcards(storeRes.flashcards);
       }
     } catch {
-      // Fallback if API server is still booting
-      setFlashcards(
-        STARTER_FLASHCARDS.map((c) => ({
-          ...c,
-          ease: 2.5,
-          intervalDays: 0,
-          repetitions: 0,
-          dueAt: Date.now(),
-        }))
-      );
+      setCacheStats((prev) => ({ ...prev, cachedImages: browserImgCount }));
     }
   };
 
@@ -128,39 +187,132 @@ export default function App() {
   };
 
   const handleCompleteLesson = async (lessonId: string) => {
-    const res = await api.completeLesson(lessonId);
-    setProfile(res.profile);
+    setProfile((prev) => {
+      if (prev.completedLessons.includes(lessonId)) return prev;
+      return {
+        ...prev,
+        completedLessons: [...prev.completedLessons, lessonId],
+        xp: prev.xp + 25,
+      };
+    });
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.completeLesson(lessonId);
+        setProfile(res.profile);
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleToggleLetter = async (letterId: string, mastered: boolean) => {
-    const res = await api.toggleLetterMastery(letterId, mastered);
-    setProfile(res.profile);
+    setProfile((prev) => {
+      const exists = prev.masteredLetters.includes(letterId);
+      if (mastered && !exists) {
+        return { ...prev, masteredLetters: [...prev.masteredLetters, letterId], xp: prev.xp + 15 };
+      }
+      if (!mastered && exists) {
+        return { ...prev, masteredLetters: prev.masteredLetters.filter((x) => x !== letterId) };
+      }
+      return prev;
+    });
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.toggleLetterMastery(letterId, mastered);
+        setProfile(res.profile);
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleMarkPassage = async (passageId: string) => {
-    const res = await api.markPassageRead(passageId);
-    setProfile(res.profile);
+    setProfile((prev) => {
+      if (prev.readPassages.includes(passageId)) return prev;
+      return { ...prev, readPassages: [...prev.readPassages, passageId], xp: prev.xp + 30 };
+    });
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.markPassageRead(passageId);
+        setProfile(res.profile);
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleAddFlashcard = async (card: Partial<Flashcard>) => {
-    const res = await api.upsertFlashcard(card);
-    setFlashcards(res.flashcards);
+    const now = Date.now();
+    setFlashcards((prev) => {
+      const idx = card.id ? prev.findIndex((c) => c.id === card.id) : -1;
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...card };
+        return copy;
+      }
+      return [
+        ...prev,
+        {
+          id: card.id || `card_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          hebrew: card.hebrew || '',
+          transliteration: card.transliteration || '',
+          meaning: card.meaning || '',
+          pictographNote: card.pictographNote || '',
+          root: card.root || '',
+          category: card.category || 'biblical',
+          imageUrl: card.imageUrl || '',
+          ease: 2.5,
+          intervalDays: 0,
+          repetitions: 0,
+          dueAt: now,
+        },
+      ];
+    });
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.upsertFlashcard(card);
+        setFlashcards(res.flashcards);
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleReviewFlashcard = async (id: string, quality: 1 | 2 | 3 | 4) => {
-    const res = await api.reviewFlashcard(id, quality);
-    setProfile(res.profile);
-    setFlashcards((prev) => prev.map((c) => (c.id === id ? res.card : c)));
+    setFlashcards((prev) => prev.map((c) => (c.id === id ? applySm2(c, quality) : c)));
+    setProfile((prev) => ({ ...prev, xp: prev.xp + (quality >= 3 ? 10 : 3) }));
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.reviewFlashcard(id, quality);
+        setProfile(res.profile);
+        setFlashcards((prev) => prev.map((c) => (c.id === id ? res.card : c)));
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleDeleteFlashcard = async (id: string) => {
-    const res = await api.deleteFlashcard(id);
-    setFlashcards(res.flashcards);
+    setFlashcards((prev) => prev.filter((c) => c.id !== id));
+    if (deployment !== 'vercel') {
+      try {
+        const res = await api.deleteFlashcard(id);
+        setFlashcards(res.flashcards);
+      } catch {
+        // local state already updated
+      }
+    }
   };
 
   const handleChangeTutorProvider = async (provider: SettingsData['tutorProvider']) => {
-    const res = await api.saveSettings({ settings: { tutorProvider: provider } });
-    setSettings(res.settings);
+    const next = { ...settings, tutorProvider: provider };
+    setSettings(next);
+    saveLocalJson(LS_KEYS.SETTINGS, next);
+    try {
+      await api.saveSettings({ settings: { tutorProvider: provider } });
+    } catch {
+      // local settings already saved
+    }
   };
 
   return (
@@ -319,6 +471,8 @@ export default function App() {
 
           {activeTab === 'settings' && (
             <SettingsView
+              deployment={deployment}
+              pinProtected={pinProtected}
               settings={settings}
               keys={keys}
               cacheStats={cacheStats}
@@ -326,6 +480,7 @@ export default function App() {
                 setSettings(nextS);
                 setKeys(nextK);
               }}
+              onRefresh={loadInitial}
             />
           )}
         </main>

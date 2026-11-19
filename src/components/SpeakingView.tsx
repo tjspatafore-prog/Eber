@@ -10,7 +10,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { SPEAKING_DRILLS } from '../data/curriculum';
-import { api, speakHebrew } from '../lib/api';
+import { api, getPreferredAudioMimeType, speakHebrew } from '../lib/api';
 
 interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -70,7 +70,8 @@ export const SpeakingView: React.FC = () => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const mimeType = getPreferredAudioMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
