@@ -12,6 +12,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { SavedLesson, speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface SavedLessonsViewProps {
   lessons: SavedLesson[];
@@ -356,9 +357,14 @@ export const SavedLessonsView: React.FC<SavedLessonsViewProps> = ({
                       <button
                         key={word}
                         onClick={() => speakHebrew(word, { mode: 'biblical', slow: true })}
-                        className="font-hebrew-biblical text-lg px-2.5 py-0.5 rounded-lg bg-white hover:bg-amber-100 border border-[#e0d0b3] text-[#211a13] cursor-pointer transition"
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-amber-100 border border-[#e0d0b3] text-[#211a13] cursor-pointer transition text-center"
                       >
-                        {word}
+                        <div className="font-hebrew-biblical text-lg leading-none">{word}</div>
+                        {toEnglishPronunciation(word) && (
+                          <div className="text-[10px] font-bold text-amber-800 mt-0.5" dir="ltr">
+                            {toEnglishPronunciation(word)}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>

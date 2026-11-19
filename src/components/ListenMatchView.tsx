@@ -15,6 +15,7 @@ import {
 import { HEBREW_ALPHABET } from '../data/alphabet';
 import { STARTER_FLASHCARDS } from '../data/curriculum';
 import { speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 type DrillMode =
   | 'vowels'
@@ -364,15 +365,15 @@ function generateRound(mode: DrillMode, count = 10): QuizQuestion[] {
         promptLabel: 'Listen to the Hebrew word and select the matching pointed word:',
         audioText: target.hebrew,
         audioMode: target.category === 'spoken' ? 'modern' : 'biblical',
-        phoneticHint: target.transliteration,
+        phoneticHint: toEnglishPronunciation(target.hebrew) || target.transliteration,
         meaningHint: target.meaning,
         correctId: target.id,
         options: shuffle(pool).map((w) => ({
           id: w.id,
           hebrew: w.hebrew,
-          markExplanation: `${w.transliteration} — "${w.meaning}"`,
+          markExplanation: `${toEnglishPronunciation(w.hebrew) || w.transliteration} — "${w.meaning}"`,
         })),
-        explanation: `${target.hebrew} (${target.transliteration}) means "${target.meaning}". Word picture: ${target.pictographNote}`,
+        explanation: `${target.hebrew} (${toEnglishPronunciation(target.hebrew) || target.transliteration}) means "${target.meaning}". Word picture: ${target.pictographNote}`,
       });
     }
   }
@@ -633,9 +634,16 @@ export const ListenMatchView: React.FC<{ onEarnXp: (xp: number) => void }> = ({ 
                       <span className="font-paleo text-2xl opacity-70">{opt.sublabel}</span>
                     )}
                     {selectedId && (
-                      <span className="text-[11px] font-semibold mt-1 leading-tight">
-                        {opt.markExplanation}
-                      </span>
+                      <>
+                        {toEnglishPronunciation(opt.hebrew) && (
+                          <span className="text-xs font-bold text-amber-800">
+                            {toEnglishPronunciation(opt.hebrew)}
+                          </span>
+                        )}
+                        <span className="text-[11px] font-semibold leading-tight">
+                          {opt.markExplanation}
+                        </span>
+                      </>
                     )}
                   </button>
                 );

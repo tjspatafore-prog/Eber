@@ -9,6 +9,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { api, Flashcard, speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface FlashcardsViewProps {
   flashcards: Flashcard[];
@@ -242,6 +243,11 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
               <div className="font-hebrew-biblical text-6xl text-[#211a13] leading-relaxed">
                 {activeCard.hebrew}
               </div>
+              {toEnglishPronunciation(activeCard.hebrew) && (
+                <div className="inline-block px-3.5 py-1 rounded-full bg-amber-100/90 border border-amber-300 text-xs font-bold text-amber-950">
+                  {toEnglishPronunciation(activeCard.hebrew)}
+                </div>
+              )}
 
               {flipped ? (
                 <div className="space-y-3 pt-4 border-t border-[#eadfcb]">

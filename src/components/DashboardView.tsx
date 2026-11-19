@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CURRICULUM_STAGES, CurriculumLesson } from '../data/curriculum';
 import { SavedLesson, UserProfile } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface DashboardViewProps {
   profile: UserProfile;
@@ -64,6 +65,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h1 className="font-display text-3xl md:text-4xl font-bold text-[#2b1e10]">
               Shalom! Welcome to <span className="text-amber-800">Eber</span>{' '}
               <span className="font-hebrew-biblical text-amber-900/80 text-3xl ml-1">עֵבֶר</span>
+              <span className="text-xs font-sans font-bold text-amber-800 ml-1.5 align-middle">
+                (EH-ver)
+              </span>
             </h1>
             <p className="text-sm md:text-base text-[#5c4a35] leading-relaxed">
               Journey from complete beginner to fluent reader of the <strong>Leningrad Codex</strong>,{' '}
@@ -245,8 +249,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </button>
                           </div>
 
-                          <div className="font-hebrew-biblical text-xl text-amber-950 bg-[#f8f1e2] px-3 py-1.5 rounded-lg text-center border border-[#ece0c9]">
-                            {lesson.hebrewFocus}
+                          <div className="bg-[#f8f1e2] px-3 py-2 rounded-lg text-center border border-[#ece0c9]">
+                            <div className="font-hebrew-biblical text-xl text-amber-950 leading-snug">
+                              {lesson.hebrewFocus}
+                            </div>
+                            {toEnglishPronunciation(lesson.hebrewFocus) && (
+                              <div className="text-[11px] font-bold text-amber-800 mt-0.5 leading-snug">
+                                {toEnglishPronunciation(lesson.hebrewFocus)}
+                              </div>
+                            )}
                           </div>
 
                           <h4 className="font-semibold text-sm text-[#2b1e10] leading-snug">

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { SPEAKING_DRILLS } from '../data/curriculum';
 import { api, getPreferredAudioMimeType, speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -221,6 +222,9 @@ export const SpeakingView: React.FC = () => {
                   </span>
                 </div>
                 <div className="font-hebrew-biblical text-xl mt-1 leading-snug">{d.hebrew}</div>
+                <div className={`text-[11px] font-bold mt-0.5 ${activeDrill.id === d.id ? 'text-amber-200' : 'text-amber-800'}`}>
+                  {toEnglishPronunciation(d.hebrew)}
+                </div>
                 <div className={`text-xs mt-1 ${activeDrill.id === d.id ? 'text-amber-100' : 'text-[#6a5741]'}`}>
                   {d.english}
                 </div>
@@ -236,7 +240,10 @@ export const SpeakingView: React.FC = () => {
               <div className="font-hebrew-biblical text-4xl md:text-5xl text-[#211a13] leading-relaxed">
                 {activeDrill.hebrew}
               </div>
-              <div className="text-base font-semibold text-amber-900">{activeDrill.transliteration}</div>
+              <div className="inline-block px-3.5 py-1.5 rounded-full bg-white/90 border border-amber-300 text-xs sm:text-sm font-bold text-amber-950">
+                {toEnglishPronunciation(activeDrill.hebrew)}
+              </div>
+              <div className="text-sm font-medium text-amber-900/90">{activeDrill.transliteration}</div>
               <div className="text-sm text-[#5d4a35]">&ldquo;{activeDrill.english}&rdquo;</div>
             </div>
 
@@ -385,7 +392,14 @@ export const SpeakingView: React.FC = () => {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="font-hebrew-biblical text-2xl text-[#211a13]">{t.hebrew}</div>
+                  <div>
+                    <div className="font-hebrew-biblical text-2xl text-[#211a13]">{t.hebrew}</div>
+                    {toEnglishPronunciation(t.hebrew) && (
+                      <div className="text-xs font-bold text-amber-800 mt-0.5">
+                        {toEnglishPronunciation(t.hebrew)}
+                      </div>
+                    )}
+                  </div>
                   {t.role === 'assistant' && (
                     <button
                       onClick={() => speakHebrew(t.hebrew, { mode: scenario.track, slow: false })}

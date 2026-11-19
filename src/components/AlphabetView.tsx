@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { FINAL_LETTERS, HEBREW_ALPHABET, HebrewLetter } from '../data/alphabet';
 import { api, speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface AlphabetViewProps {
   masteredLetters: string[];
@@ -203,6 +204,9 @@ export const AlphabetView: React.FC<AlphabetViewProps> = ({
                     {selected.hebrewName}
                   </span>
                 </h2>
+                <div className="text-xs font-bold text-amber-900 mt-0.5">
+                  Sounds like: &ldquo;{toEnglishPronunciation(selected.hebrewName)}&rdquo;
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -330,10 +334,15 @@ export const AlphabetView: React.FC<AlphabetViewProps> = ({
                     className="rounded-xl bg-white border border-[#e6d9c2] p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <span className="font-hebrew-biblical text-2xl font-bold text-amber-950">
-                          {wp.hebrew}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="text-center">
+                          <div className="font-hebrew-biblical text-2xl font-bold text-amber-950 leading-none">
+                            {wp.hebrew}
+                          </div>
+                          <div className="text-[11px] font-bold text-amber-800 mt-0.5">
+                            {toEnglishPronunciation(wp.hebrew)}
+                          </div>
+                        </div>
                         <span className="text-sm font-semibold text-[#3a2a19]">
                           {wp.transliteration} — &ldquo;{wp.meaning}&rdquo;
                         </span>

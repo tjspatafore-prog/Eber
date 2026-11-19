@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { InterlinearWord, MANUSCRIPT_PASSAGES, ManuscriptPassage } from '../data/manuscripts';
 import { api, getPreferredAudioMimeType, SavedLesson, speakHebrew, toPaleoHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 interface ManuscriptReaderViewProps {
   readPassages: string[];
@@ -241,6 +242,9 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
                 )}
               </div>
               <div className="font-hebrew-biblical text-lg mt-1.5 leading-snug">{p.hebrewTitle}</div>
+              <div className={`text-[10px] font-medium ${active ? 'text-amber-200' : 'text-amber-800'}`}>
+                {toEnglishPronunciation(p.hebrewTitle)}
+              </div>
               <div className="font-semibold text-xs mt-0.5">{p.title}</div>
             </button>
           );
@@ -341,14 +345,21 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
                               </div>
                             )}
 
-                            {scriptMode === 'beginner' && (
+                            {scriptMode !== 'unpointed' && (
                               <div className="mt-1 space-y-0.5" dir="ltr">
-                                <div className={`text-[11px] font-semibold ${isSel ? 'text-amber-100' : 'text-amber-900'}`}>
-                                  {w.transliteration}
+                                <div className={`text-[11px] font-bold tracking-wide ${isSel ? 'text-amber-100' : 'text-amber-800'}`}>
+                                  {toEnglishPronunciation(w.hebrew)}
                                 </div>
-                                <div className={`text-[10px] ${isSel ? 'text-amber-200' : 'text-[#6e5b44]'}`}>
-                                  {w.gloss}
-                                </div>
+                                {scriptMode === 'beginner' && (
+                                  <>
+                                    <div className={`text-[10px] font-medium ${isSel ? 'text-amber-200' : 'text-[#5b4733]'}`}>
+                                      {w.transliteration}
+                                    </div>
+                                    <div className={`text-[10px] ${isSel ? 'text-amber-200/90' : 'text-[#6e5b44]'}`}>
+                                      {w.gloss}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
                           </button>
@@ -535,10 +546,13 @@ export const ManuscriptReaderView: React.FC<ManuscriptReaderViewProps> = ({
               <div className="font-hebrew-codex text-5xl text-[#211a13] py-1">
                 {selectedWord.hebrew}
               </div>
+              <div className="inline-block px-3 py-1 rounded-full bg-amber-100/90 border border-amber-300 text-xs font-bold text-amber-950">
+                Sounds like: &ldquo;{toEnglishPronunciation(selectedWord.hebrew)}&rdquo;
+              </div>
               <div className="font-paleo text-2xl text-amber-900/75">
                 {toPaleoHebrew(selectedWord.unpointed)}
               </div>
-              <div className="text-base font-bold text-amber-950">{selectedWord.transliteration}</div>
+              <div className="text-sm font-semibold text-[#5b4733]">{selectedWord.transliteration}</div>
               <div className="text-sm text-[#5b4733]">&ldquo;{selectedWord.gloss}&rdquo;</div>
 
               <div className="flex justify-center gap-2 pt-2">

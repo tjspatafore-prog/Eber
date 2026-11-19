@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Volume2, Music, Sparkles } from 'lucide-react';
 import { CANTILLATION_MARKS, NIQQUD_VOWELS } from '../data/niqqudAndCantillation';
 import { speakHebrew } from '../lib/api';
+import { toEnglishPronunciation } from '../lib/hebrewPhonetics';
 
 const CONSONANTS = [
   { char: 'בּ', sound: 'b' },
@@ -153,11 +154,11 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
               {syllable}
             </div>
             <div className="space-y-1">
-              <div className="text-sm font-bold text-amber-950">
-                Modern: &ldquo;{modernReading}&rdquo;
+              <div className="inline-block px-3 py-1 rounded-full bg-amber-100 border border-amber-300 text-xs font-bold text-amber-950">
+                Sounds like: &ldquo;{toEnglishPronunciation(syllable) || modernReading}&rdquo;
               </div>
-              <div className="text-xs text-[#69553e]">
-                Tiberian: /{tiberianReading}/
+              <div className="text-xs font-semibold text-amber-900">
+                Modern: &ldquo;{modernReading}&rdquo; • Tiberian: /{tiberianReading}/
               </div>
             </div>
             <button
@@ -192,6 +193,9 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
                       {vItem.hebrewName}
                     </span>
                   </h3>
+                  <div className="text-[11px] font-semibold text-amber-800">
+                    {toEnglishPronunciation(vItem.hebrewName)}
+                  </div>
                 </div>
                 <div className="font-hebrew-biblical text-4xl text-amber-950 bg-[#faf4e8] w-14 h-14 rounded-xl flex items-center justify-center border border-[#ece0c9]">
                   {vItem.sample}
@@ -212,10 +216,15 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-[#f0e6d4]">
-                <div>
-                  <span className="font-hebrew-biblical text-xl text-[#211a13] mr-2">
-                    {vItem.exampleWord}
-                  </span>
+                <div className="flex items-center gap-2.5">
+                  <div className="text-center">
+                    <div className="font-hebrew-biblical text-xl text-[#211a13] leading-none">
+                      {vItem.exampleWord}
+                    </div>
+                    <div className="text-[10px] font-bold text-amber-800 mt-0.5">
+                      {toEnglishPronunciation(vItem.exampleWord)}
+                    </div>
+                  </div>
                   <span className="text-xs text-[#6b5842]">
                     {vItem.exampleTranslit} ({vItem.exampleMeaning})
                   </span>
@@ -267,7 +276,10 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
               <div className="font-hebrew-codex text-2xl text-[#211a13]">
                 בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים
               </div>
-              <div className="text-xs text-[#5d4a36] mt-1" dir="ltr">
+              <div className="text-xs font-bold text-amber-800 mt-1" dir="ltr">
+                beh-ray-SHEET &nbsp; bah-RAH &nbsp; eh-loh-HEEM
+              </div>
+              <div className="text-xs text-[#5d4a36] mt-0.5" dir="ltr">
                 <strong>First Half (ends at Etnachta ֑):</strong> &ldquo;In the beginning, God created...&rdquo;
               </div>
             </div>
@@ -275,7 +287,10 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
               <div className="font-hebrew-codex text-2xl text-[#211a13]">
                 אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃
               </div>
-              <div className="text-xs text-[#5d4a36] mt-1" dir="ltr">
+              <div className="text-xs font-bold text-indigo-800 mt-1" dir="ltr">
+                ayt &nbsp; hah-shah-MAH-yeem &nbsp; veh-AYT &nbsp; hah-AH-retz
+              </div>
+              <div className="text-xs text-[#5d4a36] mt-0.5" dir="ltr">
                 <strong>Second Half (ends at Sof Pasuk ׃):</strong> &ldquo;...the heavens and the earth.&rdquo;
               </div>
             </div>
@@ -296,7 +311,12 @@ export const NiqqudView: React.FC<{ onAskTutor: (prompt: string) => void }> = ({
               </div>
               <p className="text-xs text-[#66543f] leading-relaxed">{mark.functionDesc}</p>
               <div className="flex items-center justify-between pt-2 border-t border-[#f0e6d4] text-xs">
-                <span className="font-hebrew-codex text-lg text-[#211a13]">{mark.example}</span>
+                <div>
+                  <div className="font-hebrew-codex text-lg text-[#211a13] leading-none">{mark.example}</div>
+                  <div className="text-[10px] font-bold text-amber-800 mt-0.5">
+                    {toEnglishPronunciation(mark.example)}
+                  </div>
+                </div>
                 <span className="text-[#78634a] font-medium">{mark.englishParallel}</span>
               </div>
             </div>
